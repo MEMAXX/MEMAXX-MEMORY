@@ -1,21 +1,16 @@
 {
-  "name": "memaxx-memory-local",
-  "version": "2.0.0",
-  "description": "MEMAXX Memory — Self-hosted persistent memory for AI coding tools. SQLite-based, runs locally.",
+  "name": "memaxx-memory",
+  "version": "3.0.0",
+  "description": "MEMAXX Memory — Self-hosted AI memory for coding assistants. Docker-ready, HTTP + MCP server.",
   "type": "module",
-  "bin": {
-    "memaxx-memory-local": "dist/memaxx-memory-local.mjs"
-  },
-  "files": [
-    "dist/memaxx-memory-local.mjs",
-    "LICENSE",
-    "README.md"
-  ],
   "scripts": {
-    "build": "node build.mjs",
     "start": "node bin.mjs",
     "dev": "node --watch bin.mjs",
-    "dashboard": "node bin.mjs --dashboard"
+    "stdio": "node bin.mjs --stdio",
+    "setup": "node bin.mjs --setup",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",
@@ -34,7 +29,7 @@
     "sqlite",
     "ollama"
   ],
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "engines": {
     "node": ">=20"
   },

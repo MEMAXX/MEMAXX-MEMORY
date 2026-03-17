@@ -1,0 +1,31 @@
+services:
+  memaxx:
+    build: .
+    # Or use pre-built image:
+    # image: memaxx/memory:latest
+    ports:
+      - "3100:3100"
+    volumes:
+      - memaxx-data:/data
+    environment:
+      # Required: Embedding provider
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+
+      # Optional: LLM for entity extraction (knowledge graph)
+      - LLM_PROVIDER=${LLM_PROVIDER:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+
+      # Optional: Auth token for remote access
+      - AUTH_TOKEN=${AUTH_TOKEN:-}
+
+      # Server config
+      - DATA_DIR=/data
+      - PORT=3100
+      - HOST=0.0.0.0
+    restart: unless-stopped
+
+volumes:
+  memaxx-data:

@@ -2190,31 +2190,66 @@ function showOnboarding() {
           <div id="mcp-config-claude" class="code-block">{
   "mcpServers": {
     "memaxx-memory": {
-      "command": "npx",
-      "args": ["-y", "memaxx-memory-local", "start"]
+      "url": "http://localhost:3100/mcp"
     }
   }
 }<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
           <div id="mcp-config-cursor" class="code-block" style="display:none">{
   "mcpServers": {
     "memaxx-memory": {
-      "command": "npx",
-      "args": ["-y", "memaxx-memory-local", "start"]
+      "url": "http://localhost:3100/mcp"
     }
   }
 }<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
           <div id="mcp-config-windsurf" class="code-block" style="display:none">{
   "mcpServers": {
     "memaxx-memory": {
-      "command": "npx",
-      "args": ["-y", "memaxx-memory-local", "start"]
+      "url": "http://localhost:3100/mcp"
     }
   }
 }<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
         </div>
       \`
     },
-    // Step 3: Done
+    // Step 3: AI System Prompt
+    {
+      title: 'AI System Prompt',
+      content: \`
+        <div class="onboarding-desc">
+          Copy this into your project's <strong>CLAUDE.md</strong> (or equivalent system prompt file).
+          It teaches your AI to use MEMAXX Memory correctly &mdash; searching before changes, storing after tasks, running postmortems after bugs.
+        </div>
+        <div class="code-block" style="max-height:280px;overflow-y:auto;font-size:11px;line-height:1.5;white-space:pre-wrap" id="system-prompt-block">## MEMAXX Memory &mdash; MANDATORY
+
+You MUST use MEMAXX Memory (MCP tools prefixed mcp__memaxx-memory__) throughout every session.
+
+### HARD RULES
+1. FIRST action in every session: Call memory_init
+2. BEFORE every code change: Call memory_search
+3. AFTER every completed task: Call memory_store
+4. BEFORE fixing any bug: Call memory_postmortem_warnings
+5. AFTER fixing any bug: Call memory_postmortem
+6. Minimum 3 memory operations per session
+
+### Session Lifecycle
+START: memory_init
+DURING: Search before decisions, store after outcomes
+END: Store a progress memory
+
+### Key Tools
+- memory_init, memory_store, memory_search
+- memory_postmortem, memory_postmortem_warnings
+- memory_graph_explore, memory_graph_stats
+- smart_context (single-call context retrieval)
+- memory_tasks (create/get/complete)
+
+Full prompt: github.com/MEMAXX/MEMAXX-MEMORY/SYSTEM_PROMPT.md<button class="copy-btn" onclick="copySystemPrompt(this)">Copy Full Prompt</button></div>
+        <div class="text-xs text-secondary" style="margin-top:8px">
+          The full system prompt is in <strong>SYSTEM_PROMPT.md</strong> in the repo. Click "Copy Full Prompt" to copy the complete version.
+        </div>
+      \`
+    },
+    // Step 4: Done
     {
       title: "You're All Set!",
       content: \`
@@ -2266,6 +2301,17 @@ function showOnboarding() {
     navigator.clipboard.writeText(code).then(() => {
       btn.textContent = 'Copied!';
       setTimeout(() => btn.textContent = 'Copy', 1500);
+    });
+  };
+  window.copySystemPrompt = (btn) => {
+    fetch('/api/system-prompt').then(r => r.text()).then(text => {
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy Full Prompt', 1500);
+      });
+    }).catch(() => {
+      btn.textContent = 'Error';
+      setTimeout(() => btn.textContent = 'Copy Full Prompt', 1500);
     });
   };
 

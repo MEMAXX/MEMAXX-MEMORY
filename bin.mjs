@@ -1,38 +1,47 @@
 #!/usr/bin/env node
 /**
- * MEMAXX Memory Local — Self-Hosted MCP Server
+ * MEMAXX Memory — Self-Hosted AI Memory Server
  *
- * Persistent AI memory running 100% on your machine.
- * SQLite + sqlite-vec for storage, your own API key for embeddings.
+ * Runs as an HTTP server with MCP Streamable HTTP + Dashboard.
+ * Deploy via Docker or run locally.
  *
  * Usage:
- *   npx memaxx-memory-local              # first run: interactive setup
- *   npx memaxx-memory-local              # subsequent: MCP server mode
- *   npx memaxx-memory-local --setup      # re-run setup wizard
- *   npx memaxx-memory-local --backup     # backup database
- *   npx memaxx-memory-local --dashboard  # start dashboard only (opens browser)
- *   npx memaxx-memory-local --no-dashboard  # MCP server without dashboard
- *   npx memaxx-memory-local --port 3333  # custom dashboard port
+ *   docker compose up -d                    # Docker (recommended)
+ *   node bin.mjs                            # HTTP server mode (default)
+ *   node bin.mjs --stdio                    # Legacy stdio MCP transport
+ *   node bin.mjs --setup                    # Interactive setup wizard
+ *   node bin.mjs --backup                   # Backup database
  *
- * License: Proprietary. See LICENSE file.
+ * Environment Variables (for Docker):
+ *   EMBEDDING_PROVIDER=openai|openrouter|ollama
+ *   EMBEDDING_API_KEY=sk-...
+ *   EMBEDDING_MODEL=text-embedding-3-small
+ *   LLM_PROVIDER=openai|openrouter|ollama
+ *   LLM_API_KEY=sk-...
+ *   LLM_MODEL=gpt-4o-mini
+ *   DATA_DIR=/data                          # SQLite database directory
+ *   PORT=3100                               # Server port
+ *   HOST=0.0.0.0                            # Bind address
+ *   AUTH_TOKEN=                             # Optional auth token for remote access
+ *
+ * License: MIT
  */
 
-import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { homedir, platform } from "node:os";
 import { join, dirname, parse } from "node:path";
 import { createInterface } from "node:readline";
 import { randomBytes } from "node:crypto";
 
-import { readConfig, configExists, getDbPath, getConfigDir } from "./src/config.mjs";
-import { runOnboarding, ensureConfig } from "./src/onboarding.mjs";
+import { readConfig, configExists, getDbPath, getConfigDir, getEmbeddingDimension, getDefaultModel, getProviderUrl } from "./src/config.mjs";
 import { openDatabase, closeDatabase } from "./src/db.mjs";
 import { TOOL_DEFINITIONS, handleToolCall, setConfigs, setProjectId, setProjectManifest } from "./src/tools.mjs";
 
 // ── Configuration ───────────────────────────────────────────────────
 
-const SERVER_NAME = "memaxx-memory-local";
-const SERVER_VERSION = "2.0.0";
+const SERVER_NAME = "memaxx-memory";
+const SERVER_VERSION = "3.0.0";
 const MCP_PROTOCOL_VERSION = "2025-03-26";
 
 // ── CLI Flags ───────────────────────────────────────────────────────
@@ -41,48 +50,67 @@ const args = process.argv.slice(2);
 const command = args[0] || "";
 const flags = new Set(args);
 
-function getPort() {
-  const idx = args.indexOf("--port");
-  return idx !== -1 ? parseInt(args[idx + 1]) || 0 : 0;
+function getFlag(name) {
+  const idx = args.indexOf(name);
+  return idx !== -1 ? args[idx + 1] : null;
 }
 
-// ── npx memaxx-memory-local setup ────────────────────────────────────
+// ── Environment-Based Config (for Docker) ───────────────────────────
+
+function buildConfigFromEnv() {
+  const provider = process.env.EMBEDDING_PROVIDER;
+  if (!provider) return null;
+
+  const model = process.env.EMBEDDING_MODEL || getDefaultModel(provider);
+  const dimension = getEmbeddingDimension(provider, model);
+  const dataDir = process.env.DATA_DIR || join(homedir(), ".memaxx");
+
+  // Ensure data directory exists
+  mkdirSync(dataDir, { recursive: true });
+
+  const config = {
+    version: 1,
+    embedding: {
+      provider,
+      api_key: process.env.EMBEDDING_API_KEY || null,
+      base_url: process.env.EMBEDDING_BASE_URL || getProviderUrl(provider),
+      model,
+      dimension,
+    },
+    db_path: join(dataDir, "memories.db"),
+    created_at: new Date().toISOString(),
+  };
+
+  // Optional LLM config for entity extraction
+  if (process.env.LLM_PROVIDER) {
+    config.llm = {
+      provider: process.env.LLM_PROVIDER,
+      api_key: process.env.LLM_API_KEY || process.env.EMBEDDING_API_KEY || null,
+      base_url: process.env.LLM_BASE_URL || getProviderUrl(process.env.LLM_PROVIDER),
+      model: process.env.LLM_MODEL || "gpt-4o-mini",
+    };
+  }
+
+  return config;
+}
+
+// ── Setup Command ───────────────────────────────────────────────────
+
 if (command === "setup" || flags.has("--setup") || flags.has("--reconfigure")) {
+  const { runOnboarding } = await import("./src/onboarding.mjs");
   const result = await runOnboarding();
   if (result?.config) {
-    const cfg = result.config;
-    try {
-      openDatabase(cfg.db_path || getDbPath(), cfg.embedding?.dimension || 1536);
-      const { startDashboard } = await import("./src/dashboard/server.mjs");
-      await startDashboard({ port: getPort(), config: cfg, quiet: false, onboarding: true });
-      log("Setup complete! Dashboard is running.");
-      await new Promise(() => {}); // Keep alive
-    } catch (err) {
-      log(`Dashboard start failed: ${err.message}`);
-      log("Setup complete! Start the MCP server with: npx memaxx-memory-local start");
-    }
+    log("Setup complete! Start the server with: node bin.mjs");
   }
   process.exit(0);
 }
 
-// ── npx memaxx-memory-local dashboard ────────────────────────────────
-if (command === "dashboard" || flags.has("--dashboard")) {
-  const dashConfig = readConfig();
-  if (!dashConfig) {
-    console.error("\n  No config found. Run setup first:\n\n    npx memaxx-memory-local setup\n");
-    process.exit(1);
-  }
-  openDatabase(dashConfig.db_path || getDbPath(), dashConfig.embedding?.dimension || 1536);
-  const { startDashboard } = await import("./src/dashboard/server.mjs");
-  await startDashboard({ port: getPort(), config: dashConfig, quiet: false });
-  await new Promise(() => {}); // Keep alive
-}
+// ── Backup Command ──────────────────────────────────────────────────
 
-// ── npx memaxx-memory-local backup ───────────────────────────────────
 if (command === "backup" || flags.has("--backup")) {
-  const config = readConfig();
+  const config = readConfig() || buildConfigFromEnv();
   if (!config) {
-    console.error("\n  No config found. Run setup first:\n\n    npx memaxx-memory-local setup\n");
+    console.error("\n  No config found. Set environment variables or run: node bin.mjs --setup\n");
     process.exit(1);
   }
   const dbPath = config.db_path || getDbPath();
@@ -97,36 +125,61 @@ if (command === "backup" || flags.has("--backup")) {
   process.exit(0);
 }
 
-// ── npx memaxx-memory-local --version ────────────────────────────────
+// ── Version / Help ──────────────────────────────────────────────────
+
 if (flags.has("--version") || flags.has("-v")) {
   console.log(SERVER_VERSION);
   process.exit(0);
 }
 
-// ── npx memaxx-memory-local help / --help ────────────────────────────
 if (command === "help" || flags.has("--help") || flags.has("-h")) {
   console.log(`
-MEMAXX Memory Local v${SERVER_VERSION}
+MEMAXX Memory v${SERVER_VERSION}
 Self-hosted persistent memory for AI coding tools.
 
-Commands:
-  npx memaxx-memory-local setup          Setup wizard + opens dashboard
-  npx memaxx-memory-local start          Start MCP server (for IDE config)
-  npx memaxx-memory-local dashboard      Open dashboard in browser
-  npx memaxx-memory-local backup         Backup database
-  npx memaxx-memory-local help           Show this help
+Modes:
+  node bin.mjs                 Start HTTP server (MCP + Dashboard)
+  node bin.mjs --stdio         Start stdio MCP transport (legacy)
+  node bin.mjs --setup         Interactive setup wizard
+  node bin.mjs --backup        Backup database
 
 Options:
-  --port <number>      Custom dashboard port (default: auto-assigned)
-  --no-dashboard       Start MCP without background dashboard
+  --port <number>      Server port (default: 3100, env: PORT)
+  --host <address>     Bind address (default: 0.0.0.0, env: HOST)
+  --stdio              Use stdio transport instead of HTTP
+  --auth-token <tok>   Auth token for remote access (env: AUTH_TOKEN)
   --version            Show version
 
-MCP Config (paste into your IDE):
+Environment Variables (for Docker):
+  EMBEDDING_PROVIDER   openai, openrouter, or ollama
+  EMBEDDING_API_KEY    API key for embedding provider
+  EMBEDDING_MODEL      Embedding model name
+  LLM_PROVIDER         LLM provider for entity extraction
+  LLM_API_KEY          API key for LLM provider
+  LLM_MODEL            LLM model name
+  DATA_DIR             Database directory (default: ~/.memaxx)
+  PORT                 Server port (default: 3100)
+  HOST                 Bind address (default: 0.0.0.0)
+  AUTH_TOKEN           Optional auth token for remote access
+
+Docker:
+  docker compose up -d
+
+MCP Config (HTTP — recommended):
   {
     "mcpServers": {
       "memaxx-memory": {
-        "command": "npx",
-        "args": ["-y", "memaxx-memory-local", "start"]
+        "url": "http://localhost:3100/mcp"
+      }
+    }
+  }
+
+MCP Config (stdio — legacy):
+  {
+    "mcpServers": {
+      "memaxx-memory": {
+        "command": "node",
+        "args": ["bin.mjs", "--stdio"]
       }
     }
   }
@@ -134,42 +187,33 @@ MCP Config (paste into your IDE):
   process.exit(0);
 }
 
-// ── npx memaxx-memory-local (no args) — show help if no config ───────
-if (!command || command === "start" || flags.has("--no-dashboard")) {
-  // This is the MCP server mode — continue below
-} else {
-  console.error(`\n  Unknown command: ${command}\n\n  Run 'npx memaxx-memory-local help' for usage.\n`);
-  process.exit(1);
-}
+// ── Load Configuration ──────────────────────────────────────────────
 
-// ── Initialization ──────────────────────────────────────────────────
-
-let config = readConfig();
-let isFirstSetup = false;
+let config = buildConfigFromEnv() || readConfig();
 
 if (!config) {
-  if (command === "start") {
-    // Explicit start but no config — tell AI to inform user
-    log("No configuration found. User must run: npx memaxx-memory-local setup");
-    // Continue — tool calls will return setup instructions
-  } else if (process.stdin.isTTY) {
-    // No args, TTY terminal — show welcome and redirect to setup
+  if (process.stdin.isTTY && !flags.has("--stdio")) {
     console.log(`
   ┌─────────────────────────────────────────────┐
-  │   MEMAXX Memory Local v${SERVER_VERSION}               │
+  │   MEMAXX Memory v${SERVER_VERSION}                    │
   │   Self-hosted AI memory                     │
   └─────────────────────────────────────────────┘
 
-  No configuration found. Let's set up your memory!
+  No configuration found.
 
-  Run:  npx memaxx-memory-local setup
+  Option 1 (Docker):
+    Set environment variables and run: docker compose up -d
+
+  Option 2 (Local):
+    Run: node bin.mjs --setup
 `);
     process.exit(0);
   } else {
-    // Non-interactive (MCP mode) — tell the AI
-    log("No configuration found. User must run: npx memaxx-memory-local setup");
+    log("No configuration found. Set EMBEDDING_PROVIDER env var or run --setup");
   }
 }
+
+// ── Database Initialization ─────────────────────────────────────────
 
 let dbReady = false;
 
@@ -230,7 +274,6 @@ function detectGitRemote(projectRoot) {
 function resolveProject(projectRoot) {
   const folderName = projectRoot.replace(/\\/g, "/").split("/").pop() || projectRoot;
 
-  // Check .memaxx/project.json
   let existing = null;
   try {
     existing = JSON.parse(readFileSync(join(projectRoot, ".memaxx", "project.json"), "utf-8"));
@@ -244,7 +287,6 @@ function resolveProject(projectRoot) {
     return existing;
   }
 
-  // Create new
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   let id = "";
   const bytes = randomBytes(12);
@@ -309,33 +351,13 @@ function buildProjectManifest(root) {
   return manifest;
 }
 
-// Startup
+// Startup context
 const startupCtx = resolveRequestContext(null);
 const startupManifest = buildProjectManifest(startupCtx.root);
 setProjectManifest(startupManifest);
 log(`Project: ${startupCtx.project.name} | id: ${startupCtx.project.id} | root: ${startupCtx.root}`);
 
-// ── Dashboard Auto-Start ────────────────────────────────────────────
-
-if (dbReady && !args.includes("--no-dashboard")) {
-  if (isFirstSetup) {
-    // First setup complete — open dashboard with onboarding welcome screen
-    import("./src/dashboard/server.mjs").then(({ startDashboard }) => {
-      const port = args.includes("--port") ? parseInt(args[args.indexOf("--port") + 1]) : 0;
-      startDashboard({ port, config, quiet: false, onboarding: true }).catch((err) => {
-        log(`Dashboard start failed: ${err.message}`);
-      });
-    }).catch(() => {});
-  } else {
-    // Subsequent runs — start dashboard quietly in background (no browser open)
-    import("./src/dashboard/server.mjs").then(({ startDashboard }) => {
-      const port = args.includes("--port") ? parseInt(args[args.indexOf("--port") + 1]) : 0;
-      startDashboard({ port, config, quiet: true }).catch(() => {});
-    }).catch(() => {});
-  }
-}
-
-// ── MCP Protocol Handling ───────────────────────────────────────────
+// ── MCP Protocol Handling (shared by both transports) ───────────────
 
 function jsonRpcResult(id, result) {
   return { jsonrpc: "2.0", id, result };
@@ -370,9 +392,8 @@ async function handleToolsCall(req) {
       content: [{
         type: "text",
         text: JSON.stringify({
-          error: "MEMAXX Memory Local is not configured yet.",
-          setup: "Run in terminal: npx memaxx-memory-local --setup",
-          message: "Tell the user to run the setup command to configure their embedding provider.",
+          error: "MEMAXX Memory is not configured yet.",
+          setup: "Set EMBEDDING_PROVIDER environment variable or run: node bin.mjs --setup",
         }),
       }],
       isError: true,
@@ -382,7 +403,6 @@ async function handleToolsCall(req) {
   const toolName = req.params?.name;
   const toolArgs = req.params?.arguments || {};
 
-  // Inject project context
   const ctx = resolveRequestContext(toolArgs.project_root);
   toolArgs.project_root = ctx.root;
   toolArgs.project_id = toolArgs.project_id || ctx.project.id;
@@ -403,7 +423,7 @@ function isNotification(method) {
   return method.startsWith("notifications/") || method === "cancelled";
 }
 
-async function handleRequest(req) {
+async function handleMcpRequest(req) {
   if (!req || typeof req !== "object") {
     return jsonRpcError(null, -32600, "Invalid request");
   }
@@ -421,59 +441,441 @@ async function handleRequest(req) {
   }
 }
 
+// Export for dashboard server to use
+export { handleMcpRequest, SERVER_NAME, SERVER_VERSION, MCP_PROTOCOL_VERSION, TOOL_DEFINITIONS, config, dbReady };
+
+// ── Mode Selection ──────────────────────────────────────────────────
+
+if (flags.has("--stdio")) {
+  // ── Stdio Transport (legacy) ────────────────────────────────────
+  startStdioTransport();
+} else {
+  // ── HTTP Server (default) ───────────────────────────────────────
+  startHttpServer();
+}
+
 // ── Stdio Transport ─────────────────────────────────────────────────
 
-function log(msg) {
-  process.stderr.write(`[memaxx-local] ${msg}\n`);
-}
+function startStdioTransport() {
+  const rl = createInterface({ input: process.stdin, terminal: false });
 
-function sendResponse(response) {
-  if (!response) return;
-  process.stdout.write(JSON.stringify(response) + "\n");
-}
+  let pendingRequests = 0;
+  let stdinClosed = false;
 
-const rl = createInterface({ input: process.stdin, terminal: false });
-
-let pendingRequests = 0;
-let stdinClosed = false;
-
-function maybeExit() {
-  if (stdinClosed && pendingRequests === 0) {
-    closeDatabase();
-    process.exit(0);
-  }
-}
-
-rl.on("line", async (line) => {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-
-  pendingRequests++;
-  try {
-    const req = JSON.parse(trimmed);
-
-    if (Array.isArray(req)) {
-      const responses = await Promise.all(req.map(handleRequest));
-      const nonNull = responses.filter(Boolean);
-      if (nonNull.length > 0) sendResponse(nonNull);
-    } else {
-      const response = await handleRequest(req);
-      sendResponse(response);
+  function maybeExit() {
+    if (stdinClosed && pendingRequests === 0) {
+      closeDatabase();
+      process.exit(0);
     }
-  } catch (err) {
-    sendResponse(jsonRpcError(null, -32700, "Parse error"));
-  } finally {
-    pendingRequests--;
-    maybeExit();
   }
-});
 
-rl.on("close", () => {
-  stdinClosed = true;
-  maybeExit();
-});
+  function sendResponse(response) {
+    if (!response) return;
+    process.stdout.write(JSON.stringify(response) + "\n");
+  }
+
+  rl.on("line", async (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    pendingRequests++;
+    try {
+      const req = JSON.parse(trimmed);
+
+      if (Array.isArray(req)) {
+        const responses = await Promise.all(req.map(handleMcpRequest));
+        const nonNull = responses.filter(Boolean);
+        if (nonNull.length > 0) sendResponse(nonNull);
+      } else {
+        const response = await handleMcpRequest(req);
+        sendResponse(response);
+      }
+    } catch (err) {
+      sendResponse(jsonRpcError(null, -32700, "Parse error"));
+    } finally {
+      pendingRequests--;
+      maybeExit();
+    }
+  });
+
+  rl.on("close", () => {
+    stdinClosed = true;
+    maybeExit();
+  });
+
+  log(`Started v${SERVER_VERSION} — stdio mode | db: ${config?.db_path || "not configured"}`);
+}
+
+// ── HTTP Server ─────────────────────────────────────────────────────
+
+async function startHttpServer() {
+  const { createServer } = await import("node:http");
+
+  const port = parseInt(getFlag("--port") || process.env.PORT || "3100");
+  const host = getFlag("--host") || process.env.HOST || "0.0.0.0";
+  const authToken = getFlag("--auth-token") || process.env.AUTH_TOKEN || null;
+
+  // Import dashboard components
+  let renderPage, dashboardRoutes;
+  try {
+    const dashUi = await import("./src/dashboard/ui.mjs");
+    const dashServer = await import("./src/dashboard/server.mjs");
+    renderPage = dashUi.renderPage;
+    // We'll integrate dashboard routes directly
+  } catch (err) {
+    log(`Dashboard module not available: ${err.message}`);
+  }
+
+  // Import dashboard API handlers
+  let dashApi;
+  try {
+    dashApi = await import("./src/dashboard/api.mjs");
+  } catch (err) {
+    log(`Dashboard API not available: ${err.message}`);
+  }
+
+  // ── Auth Middleware ──────────────────────────────────────────────
+
+  function checkAuth(req) {
+    if (!authToken) return true; // No auth configured
+    const header = req.headers.authorization || "";
+    if (header === `Bearer ${authToken}`) return true;
+    // Also check query param for dashboard
+    const url = req.url || "";
+    const tokenParam = url.match(/[?&]token=([^&]+)/);
+    if (tokenParam && tokenParam[1] === authToken) return true;
+    return false;
+  }
+
+  // ── Route Helpers ───────────────────────────────────────────────
+
+  function sendJson(res, statusCode, data) {
+    const body = JSON.stringify(data);
+    res.writeHead(statusCode, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Length": Buffer.byteLength(body),
+      "Cache-Control": "no-cache",
+    });
+    res.end(body);
+  }
+
+  function parseBody(req) {
+    return new Promise((resolve, reject) => {
+      if (req.method === "GET" || req.method === "DELETE" || req.method === "HEAD") {
+        return resolve({});
+      }
+      const chunks = [];
+      let size = 0;
+      const MAX_BODY = 4 * 1024 * 1024; // 4MB
+
+      req.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > MAX_BODY) { req.destroy(); reject(new Error("Request body too large")); return; }
+        chunks.push(chunk);
+      });
+      req.on("end", () => {
+        const raw = Buffer.concat(chunks).toString("utf-8");
+        if (!raw || raw.trim().length === 0) return resolve({});
+        try { resolve(JSON.parse(raw)); } catch { reject(new Error("Invalid JSON")); }
+      });
+      req.on("error", reject);
+    });
+  }
+
+  function parseQuery(urlStr) {
+    const idx = urlStr.indexOf("?");
+    if (idx === -1) return {};
+    const qs = urlStr.slice(idx + 1);
+    const result = {};
+    for (const pair of qs.split("&")) {
+      const eqIdx = pair.indexOf("=");
+      if (eqIdx === -1) result[decodeURIComponent(pair)] = "";
+      else result[decodeURIComponent(pair.slice(0, eqIdx))] = decodeURIComponent(pair.slice(eqIdx + 1));
+    }
+    return result;
+  }
+
+  function getPathname(urlStr) {
+    const idx = urlStr.indexOf("?");
+    return idx === -1 ? urlStr : urlStr.slice(0, idx);
+  }
+
+  // ── Project Hash for Dashboard ──────────────────────────────────
+
+  let _cachedProjectHash = null;
+
+  function resolveProjectHash(query) {
+    if (query.project) return query.project;
+    if (_cachedProjectHash) return _cachedProjectHash;
+
+    const root = process.cwd();
+    try {
+      const projectJson = JSON.parse(readFileSync(join(root, ".memaxx", "project.json"), "utf-8"));
+      if (projectJson.id) { _cachedProjectHash = projectJson.id; return _cachedProjectHash; }
+    } catch { /* */ }
+
+    let hash = 5381;
+    const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "");
+    for (let i = 0; i < normalized.length; i++) {
+      hash = ((hash << 5) + hash + normalized.charCodeAt(i)) | 0;
+    }
+    _cachedProjectHash = Math.abs(hash).toString(36);
+    return _cachedProjectHash;
+  }
+
+  // ── Dashboard Route Compiler ────────────────────────────────────
+
+  function compileRoute(pattern) {
+    const paramNames = [];
+    const regexStr = pattern.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
+      paramNames.push(name);
+      return "([^/]+)";
+    });
+    return { regex: new RegExp(`^${regexStr}$`), paramNames };
+  }
+
+  function buildDashboardRoutes() {
+    if (!dashApi) return [];
+
+    const embeddingConfig = config?.embedding || null;
+
+    const wrapSync = (fn) => (req, res, params, query, body, ph) => {
+      try {
+        const result = fn(params, query, body, ph);
+        if (result?.status && result?.error) sendJson(res, result.status, { error: result.error });
+        else sendJson(res, 200, result);
+      } catch (err) { sendJson(res, 500, { error: err.message }); }
+    };
+
+    const wrapAsync = (fn) => async (req, res, params, query, body, ph) => {
+      try {
+        const result = await fn(params, query, body, ph);
+        if (result?.status && result?.error) sendJson(res, result.status, { error: result.error });
+        else sendJson(res, 200, result);
+      } catch (err) { sendJson(res, 500, { error: err.message }); }
+    };
+
+    const wrapNoProject = (fn) => (req, res, params, query, body) => {
+      try {
+        const result = fn(params, query, body);
+        if (result?.status && result?.error) sendJson(res, result.status, { error: result.error });
+        else sendJson(res, 200, result);
+      } catch (err) { sendJson(res, 500, { error: err.message }); }
+    };
+
+    const defs = [
+      ["GET", "/api/stats", wrapSync(dashApi.getStats)],
+      ["GET", "/api/memories", wrapSync(dashApi.getMemories)],
+      ["GET", "/api/memories/:id", wrapSync(dashApi.getMemory)],
+      ["GET", "/api/memories/:id/detail", wrapSync(dashApi.getMemoryDetail)],
+      ["GET", "/api/graph", wrapSync(dashApi.getGraph)],
+      ["GET", "/api/graph/explore/:name", wrapSync(dashApi.getGraphExplore)],
+      ["GET", "/api/graph/stats", wrapSync(dashApi.getGraphStats)],
+      ["GET", "/api/tasks", wrapSync(dashApi.getTasks)],
+      ["POST", "/api/tasks", wrapSync(dashApi.createTask)],
+      ["PATCH", "/api/tasks/:id", wrapSync(dashApi.updateTask)],
+      ["DELETE", "/api/tasks/:id", wrapSync(dashApi.deleteTask)],
+      ["GET", "/api/postmortems", wrapSync(dashApi.getPostmortems)],
+      ["GET", "/api/thinking", wrapSync(dashApi.getThinkingSequences)],
+      ["GET", "/api/thinking/:id", wrapSync(dashApi.getThinkingSequence)],
+      ["GET", "/api/rules", wrapSync(dashApi.getRules)],
+      ["GET", "/api/config", wrapNoProject(dashApi.getConfig)],
+      ["GET", "/api/search", wrapAsync((p, q, b, ph) => dashApi.searchMemoriesHandler(p, q, b, ph, embeddingConfig))],
+      ["GET", "/api/insights", wrapSync(dashApi.getInsights)],
+      ["GET", "/api/projects", wrapNoProject(dashApi.getProjects)],
+      ["POST", "/api/backup", wrapNoProject(dashApi.createBackup)],
+      ["GET", "/api/export", wrapSync(dashApi.exportMemories)],
+      ["POST", "/api/import", wrapSync(dashApi.importMemories)],
+    ];
+
+    return defs.map(([method, pattern, handler]) => {
+      const { regex, paramNames } = compileRoute(pattern);
+      return { method, regex, paramNames, handler };
+    });
+  }
+
+  const dashRoutes = buildDashboardRoutes();
+
+  function matchRoute(routes, method, pathname) {
+    for (const route of routes) {
+      if (route.method !== method) continue;
+      const match = route.regex.exec(pathname);
+      if (match) {
+        const params = {};
+        for (let i = 0; i < route.paramNames.length; i++) {
+          params[route.paramNames[i]] = decodeURIComponent(match[i + 1]);
+        }
+        return { handler: route.handler, params };
+      }
+    }
+    return null;
+  }
+
+  // ── MCP Session Management ──────────────────────────────────────
+
+  let sessionId = null;
+
+  // ── HTTP Server ─────────────────────────────────────────────────
+
+  const server = createServer(async (req, res) => {
+    // CORS headers for remote MCP clients
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id");
+    res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Auth check
+    if (!checkAuth(req)) {
+      sendJson(res, 401, { error: "Unauthorized. Provide AUTH_TOKEN via Authorization: Bearer <token>" });
+      return;
+    }
+
+    const pathname = getPathname(req.url || "/");
+    const query = parseQuery(req.url || "/");
+    const method = req.method || "GET";
+
+    // ── MCP Streamable HTTP Endpoint ────────────────────────────
+    if (pathname === "/mcp") {
+      if (method !== "POST") {
+        sendJson(res, 405, { error: "MCP endpoint accepts POST only" });
+        return;
+      }
+
+      // Validate session (after initialize)
+      const clientSessionId = req.headers["mcp-session-id"];
+      if (sessionId && clientSessionId && clientSessionId !== sessionId) {
+        sendJson(res, 409, { error: "Session ID mismatch" });
+        return;
+      }
+
+      let body;
+      try {
+        body = await parseBody(req);
+      } catch (err) {
+        sendJson(res, 400, { error: err.message });
+        return;
+      }
+
+      // Handle batch or single request
+      if (Array.isArray(body)) {
+        const responses = await Promise.all(body.map(handleMcpRequest));
+        const nonNull = responses.filter(Boolean);
+
+        // Set session ID on initialize
+        for (const r of nonNull) {
+          if (r.result?.serverInfo) {
+            sessionId = randomBytes(16).toString("hex");
+            res.setHeader("Mcp-Session-Id", sessionId);
+            break;
+          }
+        }
+
+        sendJson(res, 200, nonNull.length === 1 ? nonNull[0] : nonNull);
+      } else {
+        const response = await handleMcpRequest(body);
+
+        // Set session ID on initialize response
+        if (response?.result?.serverInfo) {
+          sessionId = randomBytes(16).toString("hex");
+          res.setHeader("Mcp-Session-Id", sessionId);
+        }
+
+        if (response) sendJson(res, 200, response);
+        else { res.writeHead(204); res.end(); }
+      }
+      return;
+    }
+
+    // ── Health Check ────────────────────────────────────────────
+    if (pathname === "/health") {
+      sendJson(res, 200, {
+        status: "ok",
+        version: SERVER_VERSION,
+        database: dbReady ? "connected" : "not configured",
+        uptime: process.uptime(),
+      });
+      return;
+    }
+
+    // ── System Prompt Endpoint ────────────────────────────────
+    if (pathname === "/api/system-prompt" && method === "GET") {
+      try {
+        const promptPath = join(dirname(new URL(import.meta.url).pathname), "SYSTEM_PROMPT.md");
+        const promptContent = readFileSync(promptPath, "utf-8");
+        res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" });
+        res.end(promptContent);
+      } catch (err) {
+        sendJson(res, 500, { error: "SYSTEM_PROMPT.md not found" });
+      }
+      return;
+    }
+
+    // ── Dashboard UI ────────────────────────────────────────────
+    if (pathname === "/" && method === "GET") {
+      if (renderPage) {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
+        res.end(renderPage({ onboarding: false }));
+      } else {
+        sendJson(res, 200, {
+          name: SERVER_NAME,
+          version: SERVER_VERSION,
+          mcp_endpoint: "/mcp",
+          dashboard: "not available",
+          health: "/health",
+        });
+      }
+      return;
+    }
+
+    // ── Dashboard API Routes ────────────────────────────────────
+    const match = matchRoute(dashRoutes, method, pathname);
+    if (match) {
+      const projectHash = resolveProjectHash(query);
+      let body = {};
+      try { body = await parseBody(req); } catch (err) { sendJson(res, 400, { error: err.message }); return; }
+      try {
+        await match.handler(req, res, match.params, query, body, projectHash);
+      } catch (err) {
+        if (!res.headersSent) sendJson(res, 500, { error: err.message });
+      }
+      return;
+    }
+
+    // ── 404 ─────────────────────────────────────────────────────
+    sendJson(res, 404, { error: "Not found", endpoints: { mcp: "/mcp", health: "/health", dashboard: "/" } });
+  });
+
+  server.listen(port, host, () => {
+    log(`Started v${SERVER_VERSION} — HTTP server`);
+    log(`MCP endpoint:  http://${host}:${port}/mcp`);
+    log(`Dashboard:     http://${host}:${port}/`);
+    log(`Health check:  http://${host}:${port}/health`);
+    if (authToken) log(`Auth:          enabled (Bearer token)`);
+    log(`Database:      ${dbReady ? (config?.db_path || getDbPath()) : "not configured"}`);
+  });
+
+  server.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      log(`Port ${port} in use. Set a different port with --port or PORT env var.`);
+      process.exit(1);
+    }
+    throw err;
+  });
+}
+
+// ── Logging ─────────────────────────────────────────────────────────
+
+function log(msg) {
+  process.stderr.write(`[memaxx] ${msg}\n`);
+}
+
+// ── Graceful Shutdown ───────────────────────────────────────────────
 
 process.on("SIGINT", () => { closeDatabase(); process.exit(0); });
 process.on("SIGTERM", () => { closeDatabase(); process.exit(0); });
-
-log(`Started v${SERVER_VERSION} — self-hosted mode | db: ${config?.db_path || "not configured"}`);

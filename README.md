@@ -1,109 +1,250 @@
-# MEMAXX Memory Local
+# MEMAXX Memory
 
-**Persistent AI memory running 100% on your machine.**
+**Self-hosted AI memory for coding assistants. Free forever.**
 
-Zero cloud dependency. SQLite-powered. Beautiful local dashboard.
+Your AI finally remembers — every decision, bug fix, and pattern, across sessions and devices.
 
 ---
 
-## Features
+## Why MEMAXX?
 
-- **36 MCP tools** — full cloud feature parity, nothing held back
-- **Hybrid search** — semantic + full-text (FTS5) + knowledge graph + time-decay ranking
-- **Interactive local dashboard** — knowledge graph visualization, memory browser, task tracking
-- **Multi-provider embeddings** — OpenAI, OpenRouter, or Ollama (fully local, no API key needed)
-- **Dream phase** — automated pattern promotion and memory consolidation on startup
-- **Bug postmortems** — structured root cause analysis with pattern learning (reinforcement learning)
-- **Document ingestion** — chunk text files into searchable memories
-- **Minimal dependencies** — just better-sqlite3 + sqlite-vec
+AI coding assistants forget everything between sessions. MEMAXX gives them persistent memory:
 
-## Quick Start
+- **36 MCP tools** — search, store, knowledge graph, postmortems, structured thinking
+- **Hybrid search** — semantic + full-text + graph-boosted + time-decay ranking
+- **Knowledge graph** — bi-temporal entity tracking with relationships
+- **Local dashboard** — memory browser, graph visualization, task tracking
+- **Multi-provider** — OpenAI, OpenRouter, or Ollama (100% local, no API key needed)
+- **Zero cloud** — SQLite + sqlite-vec, your data never leaves your machine
+
+## Quick Start (Docker)
 
 ```bash
-# Install and run
-npx memaxx-memory-local
+git clone https://github.com/MEMAXX/MEMAXX-MEMORY.git
+cd MEMAXX-MEMORY
+cp .env.example .env    # Add your API key
+docker compose up -d
 ```
 
-The setup wizard guides you through:
-1. Choose embedding provider (OpenAI / OpenRouter / Ollama)
-2. Enter API key (or skip for local Ollama)
-3. Dashboard opens automatically with onboarding guide
+That's it. MEMAXX is running at `http://localhost:3100`.
 
 ## MCP Configuration
 
-Works with Claude Code, Cursor, Windsurf, and any MCP-compatible client.
+Add this to your AI coding tool's MCP config:
 
+**Claude Code** (`~/.claude/settings.json`):
 ```json
 {
   "mcpServers": {
     "memaxx-memory": {
-      "command": "npx",
-      "args": ["-y", "memaxx-memory-local"]
+      "url": "http://localhost:3100/mcp"
     }
   }
 }
 ```
 
+**Cursor** (`.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "memaxx-memory": {
+      "url": "http://localhost:3100/mcp"
+    }
+  }
+}
+```
+
+**Windsurf** (`.windsurf/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "memaxx-memory": {
+      "url": "http://localhost:3100/mcp"
+    }
+  }
+}
+```
+
+## AI System Prompt (Important!)
+
+For your AI assistant to use MEMAXX Memory effectively, copy the system prompt into your project's `CLAUDE.md` (or equivalent):
+
+```bash
+# Claude Code
+cp SYSTEM_PROMPT.md your-project/CLAUDE.md
+
+# Or append to existing CLAUDE.md
+cat SYSTEM_PROMPT.md >> your-project/CLAUDE.md
+```
+
+This teaches your AI to:
+- Call `memory_init` at session start
+- Search memory before every code change
+- Store learnings after every task
+- Run postmortems after every bug fix
+- Use the knowledge graph and smart context
+
+The full prompt is in [`SYSTEM_PROMPT.md`](./SYSTEM_PROMPT.md). You can also copy it from the Dashboard onboarding screen.
+
+## Remote Access (Tailscale)
+
+Access your memory from anywhere — laptop, phone, another machine:
+
+1. Install [Tailscale](https://tailscale.com) on both machines
+2. Set an auth token in your `.env`:
+   ```
+   AUTH_TOKEN=your-secret-token
+   ```
+3. Restart: `docker compose up -d`
+4. Connect from anywhere:
+   ```json
+   {
+     "mcpServers": {
+       "memaxx-memory": {
+         "url": "http://your-machine.tailnet:3100/mcp",
+         "headers": {
+           "Authorization": "Bearer your-secret-token"
+         }
+       }
+     }
+   }
+   ```
+
+## Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /mcp` | MCP Streamable HTTP (JSON-RPC) |
+| `GET /` | Local dashboard (memory browser, graph, tasks) |
+| `GET /health` | Health check (version, db status, uptime) |
+| `GET /api/*` | Dashboard REST API |
+
 ## Dashboard
 
-The local dashboard gives you full visibility into your AI memory.
+Full visibility into your AI memory — runs at `http://localhost:3100`.
 
-- **Start:** `npx memaxx-memory-local --dashboard`
-- Auto-starts in the background alongside the MCP server
-- Runs on localhost only (`127.0.0.1`) — your data never leaves your machine
-
-**Pages:**
-
-| Page | Description |
+| Page | What it does |
 |------|-------------|
-| Overview | Memory stats, recent activity, quick actions |
-| Memory Browser | Search, filter, and inspect all stored memories |
+| Overview | Memory stats, recent activity, type breakdown |
+| Memory Browser | Search, filter, inspect all stored memories |
 | Knowledge Graph | Interactive entity relationship visualization |
 | Tasks | Open/completed task tracking |
 | Postmortems | Bug root cause analyses with pattern matching |
-| Thinking Sequences | Structured reasoning chains |
+| Thinking | Structured reasoning chains |
 | Rules | User and built-in rule management |
-| Settings | Provider config, backup, maintenance |
+| Settings | Provider config, backup, export/import |
 
-## CLI Options
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `EMBEDDING_PROVIDER` | Yes | — | `openai`, `openrouter`, or `ollama` |
+| `EMBEDDING_API_KEY` | Yes* | — | API key (*not needed for Ollama) |
+| `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Embedding model |
+| `LLM_PROVIDER` | No | — | LLM for entity extraction |
+| `LLM_API_KEY` | No | — | LLM API key |
+| `LLM_MODEL` | No | `gpt-4o-mini` | LLM model |
+| `DATA_DIR` | No | `/data` | Database directory |
+| `PORT` | No | `3100` | Server port |
+| `HOST` | No | `0.0.0.0` | Bind address |
+| `AUTH_TOKEN` | No | — | Bearer token for remote access |
+
+## Run Without Docker
+
+```bash
+# Install dependencies
+npm install
+
+# Interactive setup
+node bin.mjs --setup
+
+# Start server
+node bin.mjs
+
+# Or use legacy stdio transport (for npx)
+node bin.mjs --stdio
+```
+
+### CLI Options
 
 ```
-npx memaxx-memory-local                Start MCP server (+ dashboard in background)
-npx memaxx-memory-local --setup        Run/re-run setup wizard
-npx memaxx-memory-local --dashboard    Start dashboard only (opens browser)
-npx memaxx-memory-local --no-dashboard Start MCP without dashboard
-npx memaxx-memory-local --port 3333    Custom dashboard port
-npx memaxx-memory-local --backup       Backup database
+node bin.mjs                Start HTTP server (MCP + Dashboard)
+node bin.mjs --stdio        Legacy stdio MCP transport
+node bin.mjs --setup        Interactive setup wizard
+node bin.mjs --backup       Backup database
+node bin.mjs --port 8080    Custom port
+node bin.mjs --auth-token X Set auth token
 ```
+
+## Ollama (100% Local)
+
+Run MEMAXX with zero external API calls:
+
+```env
+EMBEDDING_PROVIDER=ollama
+EMBEDDING_MODEL=nomic-embed-text
+EMBEDDING_BASE_URL=http://host.docker.internal:11434
+LLM_PROVIDER=ollama
+LLM_MODEL=llama3.2
+LLM_BASE_URL=http://host.docker.internal:11434
+```
+
+> `host.docker.internal` lets Docker reach Ollama on your host machine.
 
 ## How It Works
 
-Memories are stored in a local SQLite database with vector embeddings powered by [sqlite-vec](https://github.com/asg017/sqlite-vec).
+```
+AI Coding Assistant (Claude Code, Cursor, Windsurf)
+        │
+        │  MCP Streamable HTTP (POST /mcp)
+        ▼
+┌─────────────────────────────┐
+│  MEMAXX Memory Server       │
+│                             │
+│  ┌───────────────────────┐  │
+│  │ 36 MCP Tools          │  │
+│  │ memory_init            │  │
+│  │ memory_store           │  │
+│  │ memory_search          │  │
+│  │ smart_context          │  │
+│  │ memory_graph_explore   │  │
+│  │ memory_postmortem      │  │
+│  │ ...                    │  │
+│  └───────────┬───────────┘  │
+│              │              │
+│  ┌───────────▼───────────┐  │
+│  │ SQLite + sqlite-vec   │  │
+│  │ Memories, Embeddings  │  │
+│  │ Knowledge Graph       │  │
+│  │ Tasks, Postmortems    │  │
+│  └───────────────────────┘  │
+└─────────────────────────────┘
+```
 
-- **Semantic search** via vector similarity (cosine distance)
+- **Semantic search** via vector similarity (sqlite-vec)
 - **Full-text search** via SQLite FTS5
-- **Knowledge graph** with bi-temporal entity tracking (facts have valid-time and transaction-time)
-- **Quality gate** prevents noise with 5-stage validation before storage
-- **Dream phase** runs on startup to archive stale memories and promote recurring patterns
+- **Knowledge graph** with bi-temporal entity tracking
+- **Quality gate** prevents noise with 5-stage validation
+- **Dream phase** archives stale memories and promotes patterns on startup
 
 ## Data Storage
 
 | Path | Contents |
 |------|----------|
-| `~/.memaxx/memories.db` | All memories, embeddings, knowledge graph |
-| `~/.memaxx/local-config.json` | Provider settings, preferences |
-| `.memaxx/project.json` | Per-project identity (in your project root) |
+| `/data/memories.db` (Docker) | All memories, embeddings, knowledge graph |
+| `~/.memaxx/memories.db` (local) | Same, when running without Docker |
+| `~/.memaxx/local-config.json` | Provider settings (local mode only) |
 
-All data stays on your filesystem. Back up by copying `~/.memaxx/`.
+Back up by copying the `memories.db` file or running `node bin.mjs --backup`.
 
 ## Requirements
 
-- **Node.js 20+**
-- One of the following for embeddings:
+- **Docker** (recommended) or **Node.js 20+**
+- One of:
   - OpenAI API key
   - OpenRouter API key
-  - Local [Ollama](https://ollama.com) instance (no API key required)
+  - Local [Ollama](https://ollama.com) instance (free, no API key)
 
 ## License
 
-Proprietary. See LICENSE file.
+MIT
