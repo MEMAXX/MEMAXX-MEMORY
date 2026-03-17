@@ -10,12 +10,12 @@ Your AI finally remembers — every decision, bug fix, and pattern, across sessi
 
 AI coding assistants forget everything between sessions. MEMAXX gives them persistent memory:
 
-- **36 MCP tools** — search, store, knowledge graph, postmortems, structured thinking
+- **33 MCP tools** — search, store, knowledge graph, postmortems, structured thinking
 - **Hybrid search** — semantic + full-text + graph-boosted + time-decay ranking
 - **Knowledge graph** — bi-temporal entity tracking with relationships
 - **Local dashboard** — memory browser, graph visualization, task tracking
 - **Multi-provider** — OpenAI, OpenRouter, or Ollama (100% local, no API key needed)
-- **Zero cloud** — SQLite + sqlite-vec, your data never leaves your machine
+- **Zero cloud** — PostgreSQL + pgvector, your data never leaves your machine
 
 ## Quick Start (Docker)
 
@@ -144,12 +144,15 @@ Full visibility into your AI memory — runs at `http://localhost:3100`.
 | `LLM_PROVIDER` | No | — | LLM for entity extraction |
 | `LLM_API_KEY` | No | — | LLM API key |
 | `LLM_MODEL` | No | `gpt-4o-mini` | LLM model |
-| `DATA_DIR` | No | `/data` | Database directory |
+| `DATABASE_URL` | No | Auto-configured by Docker | PostgreSQL connection string |
+| `POSTGRES_PASSWORD` | No | `memaxx` | PostgreSQL password |
 | `PORT` | No | `3100` | Server port |
 | `HOST` | No | `0.0.0.0` | Bind address |
 | `AUTH_TOKEN` | No | — | Bearer token for remote access |
 
 ## Run Without Docker
+
+> **Note:** PostgreSQL 17 with pgvector must be running separately. Set the `DATABASE_URL` environment variable to point to your PostgreSQL instance.
 
 ```bash
 # Install dependencies
@@ -189,7 +192,7 @@ LLM_MODEL=llama3.2
 LLM_BASE_URL=http://host.docker.internal:11434
 ```
 
-> `host.docker.internal` lets Docker reach Ollama on your host machine.
+> `host.docker.internal` lets the Docker Compose PostgreSQL setup reach Ollama on your host machine.
 
 ## How It Works
 
@@ -202,7 +205,7 @@ AI Coding Assistant (Claude Code, Cursor, Windsurf)
 │  MEMAXX Memory Server       │
 │                             │
 │  ┌───────────────────────┐  │
-│  │ 36 MCP Tools          │  │
+│  │ 33 MCP Tools          │  │
 │  │ memory_init            │  │
 │  │ memory_store           │  │
 │  │ memory_search          │  │
@@ -213,7 +216,7 @@ AI Coding Assistant (Claude Code, Cursor, Windsurf)
 │  └───────────┬───────────┘  │
 │              │              │
 │  ┌───────────▼───────────┐  │
-│  │ SQLite + sqlite-vec   │  │
+│  │ PostgreSQL + pgvector  │  │
 │  │ Memories, Embeddings  │  │
 │  │ Knowledge Graph       │  │
 │  │ Tasks, Postmortems    │  │
@@ -221,8 +224,8 @@ AI Coding Assistant (Claude Code, Cursor, Windsurf)
 └─────────────────────────────┘
 ```
 
-- **Semantic search** via vector similarity (sqlite-vec)
-- **Full-text search** via SQLite FTS5
+- **Semantic search** via pgvector (cosine distance)
+- **Full-text search** via PostgreSQL tsvector + GIN
 - **Knowledge graph** with bi-temporal entity tracking
 - **Quality gate** prevents noise with 5-stage validation
 - **Dream phase** archives stale memories and promotes patterns on startup
@@ -231,15 +234,14 @@ AI Coding Assistant (Claude Code, Cursor, Windsurf)
 
 | Path | Contents |
 |------|----------|
-| `/data/memories.db` (Docker) | All memories, embeddings, knowledge graph |
-| `~/.memaxx/memories.db` (local) | Same, when running without Docker |
+| `/var/lib/postgresql/data` (Docker volume `pgdata`) | All memories, embeddings, knowledge graph |
 | `~/.memaxx/local-config.json` | Provider settings (local mode only) |
 
-Back up by copying the `memories.db` file or running `node bin.mjs --backup`.
+Back up with `docker compose exec postgres pg_dump -U memaxx memaxx > backup.sql`.
 
 ## Requirements
 
-- **Docker** (recommended) or **Node.js 20+**
+- **Docker** (includes PostgreSQL 17 with pgvector)
 - One of:
   - OpenAI API key
   - OpenRouter API key
