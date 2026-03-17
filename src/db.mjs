@@ -1,82 +1,115 @@
 /**
- * SQLite database setup and migrations for MEMAXX Memory Local.
- * Uses better-sqlite3 + sqlite-vec for vector search.
+ * PostgreSQL database setup and migrations for MEMAXX Memory.
+ * Uses pg (Pool) + pgvector for vector search.
  */
 
-import Database from "better-sqlite3";
-import * as sqliteVec from "sqlite-vec";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import pg from "pg";
 
-let _db = null;
+const { Pool } = pg;
+
+let _pool = null;
 
 /**
- * Open (or create) the SQLite database with sqlite-vec loaded.
- * @param {string} dbPath
- * @param {number} embeddingDim
- * @returns {import("better-sqlite3").Database}
+ * Initialize the PostgreSQL connection pool and run all migrations.
+ * @param {string} databaseUrl - PostgreSQL connection string (e.g., postgresql://memaxx:memaxx@postgres:5432/memaxx)
+ * @param {number} [embeddingDim=1536] - Dimension of embedding vectors
+ * @returns {Promise<pg.Pool>}
  */
-export function openDatabase(dbPath, embeddingDim) {
-  if (_db) return _db;
+export async function initDatabase(databaseUrl, embeddingDim = 1536) {
+  if (_pool) return _pool;
 
-  // Ensure directory exists
-  mkdirSync(dirname(dbPath), { recursive: true });
+  if (!databaseUrl) {
+    databaseUrl = process.env.DATABASE_URL;
+  }
+  if (!databaseUrl) {
+    throw new Error(
+      "DATABASE_URL is required. Pass it to initDatabase() or set the DATABASE_URL environment variable."
+    );
+  }
 
-  const db = new Database(dbPath);
+  _pool = new Pool({
+    connectionString: databaseUrl,
+    max: 20,
+    idleTimeoutMillis: 30000,
+  });
 
-  // Performance settings
-  db.pragma("journal_mode = WAL");
-  db.pragma("synchronous = NORMAL");
-  db.pragma("cache_size = -64000"); // 64MB
-  db.pragma("foreign_keys = ON");
-
-  // Load sqlite-vec extension
-  sqliteVec.load(db);
+  // Verify connectivity
+  const client = await _pool.connect();
+  try {
+    // Enable pgvector extension
+    await client.query("CREATE EXTENSION IF NOT EXISTS vector");
+  } finally {
+    client.release();
+  }
 
   // Run migrations
-  migrate(db, embeddingDim);
+  await migrate(embeddingDim);
 
-  _db = db;
-  return db;
+  return _pool;
 }
 
-export function getDb() {
-  if (!_db) throw new Error("Database not initialized. Call openDatabase() first.");
-  return _db;
+/**
+ * Get the active connection pool.
+ * @returns {pg.Pool}
+ */
+export function getPool() {
+  if (!_pool) throw new Error("Database not initialized. Call initDatabase() first.");
+  return _pool;
 }
 
-export function closeDatabase() {
-  if (_db) {
-    _db.close();
-    _db = null;
+/**
+ * Close the connection pool.
+ */
+export async function closeDatabase() {
+  if (_pool) {
+    await _pool.end();
+    _pool = null;
   }
+}
+
+/**
+ * Execute a SQL query using the pool.
+ * @param {string} sql - SQL statement (use $1, $2, ... for parameters)
+ * @param {any[]} [params=[]] - Parameter values
+ * @returns {Promise<{rows: any[], rowCount: number}>}
+ */
+export async function query(sql, params = []) {
+  if (!_pool) throw new Error("Database not initialized. Call initDatabase() first.");
+  return _pool.query(sql, params);
 }
 
 // ── Migrations ───────────────────────────────────────────────────────
 
-function migrate(db, embeddingDim) {
+async function migrate(embeddingDim) {
   // Create migration tracking table
-  db.exec(`CREATE TABLE IF NOT EXISTS _migrations (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    applied_at TEXT DEFAULT (datetime('now'))
-  )`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
-  const applied = new Set(
-    db.prepare("SELECT name FROM _migrations").all().map(r => r.name)
-  );
+  const result = await query("SELECT name FROM _migrations");
+  const applied = new Set(result.rows.map((r) => r.name));
 
   const migrations = getMigrations(embeddingDim);
-
-  const runMigration = db.transaction((name, sql) => {
-    db.exec(sql);
-    db.prepare("INSERT INTO _migrations (name) VALUES (?)").run(name);
-  });
 
   for (const { name, sql } of migrations) {
     if (!applied.has(name)) {
       log(`Running migration: ${name}`);
-      runMigration(name, sql);
+      const client = await _pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(sql);
+        await client.query("INSERT INTO _migrations (name) VALUES ($1)", [name]);
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw new Error(`Migration "${name}" failed: ${err.message}`);
+      } finally {
+        client.release();
+      }
     }
   }
 }
@@ -91,15 +124,15 @@ function getMigrations(dim) {
           project_hash TEXT NOT NULL,
           content TEXT NOT NULL,
           type TEXT NOT NULL DEFAULT 'learning',
-          importance_score REAL DEFAULT 0.5,
-          tags TEXT DEFAULT '[]',
-          related_files TEXT DEFAULT '[]',
+          importance_score DOUBLE PRECISION DEFAULT 0.5,
+          tags JSONB DEFAULT '[]'::jsonb,
+          related_files JSONB DEFAULT '[]'::jsonb,
           session_name TEXT,
           content_hash TEXT,
           retrieval_count INTEGER DEFAULT 0,
-          is_archived INTEGER DEFAULT 0,
-          created_at TEXT DEFAULT (datetime('now')),
-          updated_at TEXT DEFAULT (datetime('now'))
+          is_archived BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project_hash);
@@ -112,35 +145,34 @@ function getMigrations(dim) {
     {
       name: "002_memories_fts",
       sql: `
-        CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-          content,
-          tags,
-          content='memories',
-          content_rowid='rowid'
-        );
+        ALTER TABLE memories ADD COLUMN IF NOT EXISTS search_vector tsvector;
 
-        -- Triggers to keep FTS in sync
-        CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-          INSERT INTO memories_fts(rowid, content, tags) VALUES (new.rowid, new.content, new.tags);
-        END;
+        CREATE INDEX IF NOT EXISTS idx_memories_fts ON memories USING GIN(search_vector);
 
-        CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-          INSERT INTO memories_fts(memories_fts, rowid, content, tags) VALUES('delete', old.rowid, old.content, old.tags);
+        CREATE OR REPLACE FUNCTION memories_search_vector_update() RETURNS trigger AS $$
+        BEGIN
+          NEW.search_vector := to_tsvector('english',
+            COALESCE(NEW.content, '') || ' ' || COALESCE(NEW.tags::text, '')
+          );
+          RETURN NEW;
         END;
+        $$ LANGUAGE plpgsql;
 
-        CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-          INSERT INTO memories_fts(memories_fts, rowid, content, tags) VALUES('delete', old.rowid, old.content, old.tags);
-          INSERT INTO memories_fts(rowid, content, tags) VALUES (new.rowid, new.content, new.tags);
-        END;
+        DROP TRIGGER IF EXISTS trg_memories_search_vector ON memories;
+        CREATE TRIGGER trg_memories_search_vector
+          BEFORE INSERT OR UPDATE ON memories
+          FOR EACH ROW
+          EXECUTE FUNCTION memories_search_vector_update();
       `,
     },
     {
       name: "003_memories_vec",
       sql: `
-        CREATE VIRTUAL TABLE IF NOT EXISTS memories_vec USING vec0(
-          id TEXT PRIMARY KEY,
-          embedding float[${dim}]
-        );
+        ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding vector(${dim});
+
+        CREATE INDEX IF NOT EXISTS idx_memories_embedding_hnsw
+          ON memories USING hnsw (embedding vector_cosine_ops)
+          WITH (m = 16, ef_construction = 64);
       `,
     },
     {
@@ -152,10 +184,10 @@ function getMigrations(dim) {
           name TEXT NOT NULL,
           type TEXT NOT NULL DEFAULT 'concept',
           description TEXT,
-          confidence REAL DEFAULT 1.0,
-          is_valid INTEGER DEFAULT 1,
-          created_at TEXT DEFAULT (datetime('now')),
-          updated_at TEXT DEFAULT (datetime('now'))
+          confidence DOUBLE PRECISION DEFAULT 1.0,
+          is_valid BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE INDEX IF NOT EXISTS idx_entities_project ON entities(project_hash);
@@ -172,11 +204,11 @@ function getMigrations(dim) {
           source_id TEXT NOT NULL REFERENCES entities(id),
           target_id TEXT NOT NULL REFERENCES entities(id),
           relation TEXT NOT NULL,
-          confidence REAL DEFAULT 1.0,
-          is_valid INTEGER DEFAULT 1,
-          valid_from TEXT DEFAULT (datetime('now')),
-          valid_to TEXT,
-          created_at TEXT DEFAULT (datetime('now'))
+          confidence DOUBLE PRECISION DEFAULT 1.0,
+          is_valid BOOLEAN DEFAULT TRUE,
+          valid_from TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          valid_to TIMESTAMPTZ,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_id);
@@ -190,7 +222,7 @@ function getMigrations(dim) {
         CREATE TABLE IF NOT EXISTS entity_mentions (
           memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
           entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-          created_at TEXT DEFAULT (datetime('now')),
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (memory_id, entity_id)
         );
       `,
@@ -205,9 +237,9 @@ function getMigrations(dim) {
           description TEXT,
           status TEXT DEFAULT 'open',
           priority TEXT DEFAULT 'medium',
-          created_at TEXT DEFAULT (datetime('now')),
-          updated_at TEXT DEFAULT (datetime('now')),
-          completed_at TEXT
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          completed_at TIMESTAMPTZ
         );
 
         CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_hash);
@@ -226,10 +258,10 @@ function getMigrations(dim) {
           root_cause TEXT,
           fix_description TEXT,
           prevention TEXT,
-          affected_files TEXT DEFAULT '[]',
+          affected_files JSONB DEFAULT '[]'::jsonb,
           warning_pattern TEXT,
           severity TEXT DEFAULT 'medium',
-          created_at TEXT DEFAULT (datetime('now'))
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE INDEX IF NOT EXISTS idx_postmortems_project ON postmortems(project_hash);
@@ -245,13 +277,13 @@ function getMigrations(dim) {
           pattern TEXT NOT NULL,
           description TEXT,
           category TEXT DEFAULT 'general',
-          confidence REAL DEFAULT 0.5,
+          confidence DOUBLE PRECISION DEFAULT 0.5,
           status TEXT DEFAULT 'candidate',
           applied_count INTEGER DEFAULT 0,
           success_count INTEGER DEFAULT 0,
           failure_count INTEGER DEFAULT 0,
-          created_at TEXT DEFAULT (datetime('now')),
-          updated_at TEXT DEFAULT (datetime('now'))
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE INDEX IF NOT EXISTS idx_patterns_project ON patterns(project_hash);
@@ -266,8 +298,8 @@ function getMigrations(dim) {
           project_hash TEXT NOT NULL,
           title TEXT NOT NULL,
           status TEXT DEFAULT 'active',
-          created_at TEXT DEFAULT (datetime('now')),
-          updated_at TEXT DEFAULT (datetime('now'))
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE TABLE IF NOT EXISTS thinking_thoughts (
@@ -275,7 +307,7 @@ function getMigrations(dim) {
           sequence_id TEXT NOT NULL REFERENCES thinking_sequences(id) ON DELETE CASCADE,
           type TEXT DEFAULT 'observation',
           content TEXT NOT NULL,
-          created_at TEXT DEFAULT (datetime('now'))
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE INDEX IF NOT EXISTS idx_thinking_project ON thinking_sequences(project_hash);
@@ -286,10 +318,10 @@ function getMigrations(dim) {
       name: "011_access_log",
       sql: `
         CREATE TABLE IF NOT EXISTS access_log (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          id SERIAL PRIMARY KEY,
           memory_id TEXT NOT NULL,
           tool_name TEXT,
-          created_at TEXT DEFAULT (datetime('now'))
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE INDEX IF NOT EXISTS idx_access_log_memory ON access_log(memory_id);
@@ -303,8 +335,8 @@ function getMigrations(dim) {
           project_hash TEXT NOT NULL,
           content TEXT NOT NULL,
           priority TEXT DEFAULT 'should',
-          is_active INTEGER DEFAULT 1,
-          created_at TEXT DEFAULT (datetime('now'))
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE INDEX IF NOT EXISTS idx_rules_project ON rules(project_hash);
@@ -313,10 +345,11 @@ function getMigrations(dim) {
     {
       name: "013_entities_vec",
       sql: `
-        CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(
-          id TEXT PRIMARY KEY,
-          embedding float[${dim}]
-        );
+        ALTER TABLE entities ADD COLUMN IF NOT EXISTS embedding vector(${dim});
+
+        CREATE INDEX IF NOT EXISTS idx_entities_embedding_hnsw
+          ON entities USING hnsw (embedding vector_cosine_ops)
+          WITH (m = 16, ef_construction = 64);
       `,
     },
     {
@@ -331,8 +364,9 @@ function getMigrations(dim) {
           chunk_count INTEGER DEFAULT 0,
           status TEXT DEFAULT 'processing',
           error_message TEXT,
-          created_at TEXT DEFAULT (datetime('now'))
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
+
         CREATE INDEX IF NOT EXISTS idx_doc_uploads_project ON document_uploads(project_hash);
       `,
     },
@@ -346,9 +380,10 @@ function getMigrations(dim) {
           title TEXT,
           content TEXT NOT NULL,
           version INTEGER DEFAULT 1,
-          created_at TEXT DEFAULT (datetime('now')),
-          updated_at TEXT DEFAULT (datetime('now'))
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
+
         CREATE INDEX IF NOT EXISTS idx_project_docs_project ON project_docs(project_hash);
         CREATE INDEX IF NOT EXISTS idx_project_docs_type ON project_docs(doc_type);
 
@@ -357,9 +392,10 @@ function getMigrations(dim) {
           source_project_hash TEXT NOT NULL,
           target_project_hash TEXT NOT NULL,
           link_type TEXT NOT NULL DEFAULT 'related',
-          created_at TEXT DEFAULT (datetime('now')),
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(source_project_hash, target_project_hash)
         );
+
         CREATE INDEX IF NOT EXISTS idx_project_links_source ON project_links(source_project_hash);
         CREATE INDEX IF NOT EXISTS idx_project_links_target ON project_links(target_project_hash);
       `,
@@ -369,6 +405,10 @@ function getMigrations(dim) {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+/**
+ * Generate a random 12-character alphanumeric ID using DJB2-style mixing.
+ * @returns {string}
+ */
 export function generateId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   const bytes = new Uint8Array(12);
@@ -378,8 +418,12 @@ export function generateId() {
   return id;
 }
 
+/**
+ * Compute a simple DJB2 content hash for deduplication (not cryptographic).
+ * @param {string} text
+ * @returns {string}
+ */
 export function contentHash(text) {
-  // Simple DJB2 hash for dedup (not crypto)
   let hash = 5381;
   for (let i = 0; i < text.length; i++) {
     hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
@@ -388,5 +432,5 @@ export function contentHash(text) {
 }
 
 function log(msg) {
-  process.stderr.write(`[memaxx-local] ${msg}\n`);
+  process.stderr.write(`[memaxx] ${msg}\n`);
 }

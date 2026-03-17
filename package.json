@@ -1,7 +1,7 @@
 {
   "name": "memaxx-memory",
-  "version": "3.0.0",
-  "description": "MEMAXX Memory — Self-hosted AI memory for coding assistants. Docker-ready, HTTP + MCP server.",
+  "version": "4.0.0",
+  "description": "MEMAXX Memory — Self-hosted AI memory for coding assistants. PostgreSQL + pgvector, Docker-ready.",
   "type": "module",
   "scripts": {
     "start": "node bin.mjs",
@@ -13,8 +13,7 @@
     "docker:down": "docker compose down"
   },
   "dependencies": {
-    "better-sqlite3": "^11.0.0",
-    "sqlite-vec": "^0.1.0"
+    "pg": "^8.13.0"
   },
   "keywords": [
     "mcp",
@@ -25,16 +24,13 @@
     "model-context-protocol",
     "memaxx",
     "self-hosted",
-    "local",
-    "sqlite",
+    "postgresql",
+    "pgvector",
+    "docker",
     "ollama"
   ],
   "license": "MIT",
   "engines": {
     "node": ">=20"
-  },
-  "devDependencies": {
-    "esbuild": "^0.27.4",
-    "javascript-obfuscator": "^5.3.0"
   }
 }

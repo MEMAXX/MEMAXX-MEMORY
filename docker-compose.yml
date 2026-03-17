@@ -1,31 +1,47 @@
 services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: memaxx
+      POSTGRES_USER: memaxx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memaxx}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memaxx -d memaxx"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   memaxx:
     build: .
-    # Or use pre-built image:
-    # image: memaxx/memory:latest
     ports:
-      - "3100:3100"
-    volumes:
-      - memaxx-data:/data
+      - "${PORT:-3100}:3100"
     environment:
-      # Required: Embedding provider
+      # Database
+      - DATABASE_URL=postgresql://memaxx:${POSTGRES_PASSWORD:-memaxx}@postgres:5432/memaxx
+
+      # Embedding provider (required)
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
       - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-}
 
-      # Optional: LLM for entity extraction (knowledge graph)
+      # LLM for entity extraction (optional)
       - LLM_PROVIDER=${LLM_PROVIDER:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
 
-      # Optional: Auth token for remote access
-      - AUTH_TOKEN=${AUTH_TOKEN:-}
-
-      # Server config
-      - DATA_DIR=/data
+      # Server
       - PORT=3100
       - HOST=0.0.0.0
+      - AUTH_TOKEN=${AUTH_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  memaxx-data:
+  pgdata:

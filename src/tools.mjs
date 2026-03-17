@@ -1,12 +1,12 @@
 /**
- * MCP Tool definitions and handlers for MEMAXX Memory Local.
- * Implements all memory tools locally with SQLite.
+ * MCP Tool definitions and handlers for MEMAXX Memory.
+ * Implements all memory tools with PostgreSQL (async pg).
  */
 
-import { getDb, generateId, contentHash } from "./db.mjs";
+import { query, generateId, contentHash } from "./db.mjs";
 import { generateEmbedding, cosineSimilarity } from "./embeddings.mjs";
 import { extractEntities } from "./llm.mjs";
-import { searchMemories, getPredictiveMemories, getRecentActivity } from "./search.mjs";
+import { searchMemories, getPredictiveMemories, getRecentActivity, formatEmbedding } from "./search.mjs";
 
 /** @type {object} */
 let _embeddingConfig = null;
@@ -597,26 +597,31 @@ export async function handleToolCall(name, args) {
 // ── Handlers ─────────────────────────────────────────────────────────
 
 async function handleInit(args, ph) {
-  const db = getDb();
   const daysBack = Math.min(30, Math.max(1, args?.days_back || 7));
 
   // Run dream phase on startup (consolidation, archival, pattern promotion)
-  const dreamResult = runDreamPhase(ph);
+  const dreamResult = await runDreamPhase(ph);
 
-  const memoryCount = db.prepare(
-    "SELECT COUNT(*) as c FROM memories WHERE project_hash = ? AND is_archived = 0"
-  ).get(ph)?.c || 0;
+  const countRes = await query(
+    "SELECT COUNT(*) as c FROM memories WHERE project_hash = $1 AND is_archived = FALSE",
+    [ph]
+  );
+  const memoryCount = countRes.rows[0]?.c || 0;
 
-  const recentActivity = getRecentActivity(ph, daysBack, 10);
-  const openTasks = db.prepare(
-    "SELECT * FROM tasks WHERE project_hash = ? AND status = 'open' ORDER BY created_at DESC"
-  ).all(ph);
-  const predictive = getPredictiveMemories(ph, 5);
+  const recentActivity = await getRecentActivity(ph, daysBack, 10);
+  const taskRes = await query(
+    "SELECT * FROM tasks WHERE project_hash = $1 AND status = 'open' ORDER BY created_at DESC",
+    [ph]
+  );
+  const openTasks = taskRes.rows;
+  const predictive = await getPredictiveMemories(ph, 5);
 
   // User-defined rules from DB
-  const userRules = db.prepare(
-    "SELECT * FROM rules WHERE project_hash = ? AND is_active = 1"
-  ).all(ph);
+  const rulesRes = await query(
+    "SELECT * FROM rules WHERE project_hash = $1 AND is_active = TRUE",
+    [ph]
+  );
+  const userRules = rulesRes.rows;
 
   // Built-in rules (framework-aware) — use manifest from args if provided, fall back to global
   const manifest = args?.manifest || _projectManifest;
@@ -636,7 +641,6 @@ async function handleInit(args, ph) {
 }
 
 async function handleStore(args, ph) {
-  const db = getDb();
   const content = args.content;
   if (!content || content.trim().length < 5) return err("Content too short (min 5 chars).");
 
@@ -646,10 +650,11 @@ async function handleStore(args, ph) {
 
   // Content dedup
   const hash = contentHash(content);
-  const existing = db.prepare(
-    "SELECT id FROM memories WHERE project_hash = ? AND content_hash = ?"
-  ).get(ph, hash);
-  if (existing) return ok({ id: existing.id, deduplicated: true, message: "Memory already exists." });
+  const existingRes = await query(
+    "SELECT id FROM memories WHERE project_hash = $1 AND content_hash = $2",
+    [ph, hash]
+  );
+  if (existingRes.rows[0]) return ok({ id: existingRes.rows[0].id, deduplicated: true, message: "Memory already exists." });
 
   const id = generateId();
   const tags = JSON.stringify(args.tags || []);
@@ -658,17 +663,17 @@ async function handleStore(args, ph) {
   const finalType = qg.type;
   const finalImportance = qg.importance;
 
-  db.prepare(`
+  await query(`
     INSERT INTO memories (id, project_hash, content, type, importance_score, tags, related_files, session_name, content_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)
+  `, [
     id, ph, content,
     finalType,
     finalImportance,
     tags, relatedFiles,
     args.session_name || null,
     hash,
-  );
+  ]);
 
   // Background: embedding + entity extraction (async, non-blocking)
   processMemoryAsync(id, content, finalType, ph).catch(() => {});
@@ -682,14 +687,13 @@ async function handleStore(args, ph) {
 
 /** Background processing for a stored memory */
 async function processMemoryAsync(id, content, type, ph) {
-  const db = getDb();
-
   // 1. Generate and store embedding
   if (_embeddingConfig) {
     const embedding = await generateEmbedding(content, _embeddingConfig);
     if (embedding) {
       try {
-        db.prepare("INSERT INTO memories_vec (id, embedding) VALUES (?, ?)").run(id, embedding.buffer);
+        const vec = formatEmbedding(embedding);
+        await query("UPDATE memories SET embedding = $1::vector WHERE id = $2", [vec, id]);
       } catch { /* vec insert error */ }
     }
   }
@@ -701,40 +705,58 @@ async function processMemoryAsync(id, content, type, ph) {
     for (const ent of entities) {
       const entId = generateId();
       try {
-        db.prepare(`
-          INSERT INTO entities (id, project_hash, name, type) VALUES (?, ?, ?, ?)
-          ON CONFLICT (project_hash, name, type) DO UPDATE SET updated_at = datetime('now')
-        `).run(entId, ph, ent.name, ent.type);
+        await query(`
+          INSERT INTO entities (id, project_hash, name, type) VALUES ($1, $2, $3, $4)
+          ON CONFLICT (project_hash, name, type) DO UPDATE SET updated_at = NOW()
+        `, [entId, ph, ent.name, ent.type]);
 
         // Get the actual entity ID (might be existing)
-        const actualEntity = db.prepare(
-          "SELECT id FROM entities WHERE project_hash = ? AND name = ? AND type = ?"
-        ).get(ph, ent.name, ent.type);
+        const actualRes = await query(
+          "SELECT id FROM entities WHERE project_hash = $1 AND name = $2 AND type = $3",
+          [ph, ent.name, ent.type]
+        );
+        const actualEntity = actualRes.rows[0];
 
         if (actualEntity) {
           try {
-            db.prepare(
-              "INSERT OR IGNORE INTO entity_mentions (memory_id, entity_id) VALUES (?, ?)"
-            ).run(id, actualEntity.id);
+            await query(
+              "INSERT INTO entity_mentions (memory_id, entity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+              [id, actualEntity.id]
+            );
           } catch { /* */ }
+
+          // Generate and store entity embedding
+          if (_embeddingConfig) {
+            const entEmbedding = await generateEmbedding(ent.name, _embeddingConfig);
+            if (entEmbedding) {
+              try {
+                const entVec = formatEmbedding(entEmbedding);
+                await query("UPDATE entities SET embedding = $1::vector WHERE id = $2", [entVec, actualEntity.id]);
+              } catch { /* */ }
+            }
+          }
         }
       } catch { /* entity insert error */ }
     }
 
     for (const rel of relations) {
       try {
-        const source = db.prepare(
-          "SELECT id FROM entities WHERE project_hash = ? AND name = ?"
-        ).get(ph, rel.source);
-        const target = db.prepare(
-          "SELECT id FROM entities WHERE project_hash = ? AND name = ?"
-        ).get(ph, rel.target);
+        const sourceRes = await query(
+          "SELECT id FROM entities WHERE project_hash = $1 AND name = $2",
+          [ph, rel.source]
+        );
+        const targetRes = await query(
+          "SELECT id FROM entities WHERE project_hash = $1 AND name = $2",
+          [ph, rel.target]
+        );
+        const source = sourceRes.rows[0];
+        const target = targetRes.rows[0];
 
         if (source && target) {
-          db.prepare(`
+          await query(`
             INSERT INTO relations (id, project_hash, source_id, target_id, relation)
-            VALUES (?, ?, ?, ?, ?)
-          `).run(generateId(), ph, source.id, target.id, rel.relation);
+            VALUES ($1, $2, $3, $4, $5)
+          `, [generateId(), ph, source.id, target.id, rel.relation]);
         }
       } catch { /* */ }
     }
@@ -756,12 +778,12 @@ async function handleSearch(args, ph) {
   return ok(results);
 }
 
-function handleModify(args, ph) {
-  const db = getDb();
+async function handleModify(args, ph) {
   const memoryId = args.memory_id || args.id;
   if (!memoryId) return err("memory_id is required.");
 
-  const mem = db.prepare("SELECT * FROM memories WHERE id = ?").get(memoryId);
+  const memRes = await query("SELECT * FROM memories WHERE id = $1", [memoryId]);
+  const mem = memRes.rows[0];
   if (!mem) return err("Memory not found.");
 
   // Normalize action aliases: inactivate → archive, unarchive → reactivate
@@ -773,89 +795,89 @@ function handleModify(args, ph) {
     case "update": {
       const updates = [];
       const params = [];
-      if (args.content) { updates.push("content = ?"); params.push(args.content); }
-      if (args.type) { updates.push("type = ?"); params.push(args.type); }
-      if (args.importance_score !== undefined) { updates.push("importance_score = ?"); params.push(args.importance_score); }
-      if (args.tags) { updates.push("tags = ?"); params.push(JSON.stringify(args.tags)); }
-      if (args.related_files) { updates.push("related_files = ?"); params.push(JSON.stringify(args.related_files)); }
-      updates.push("updated_at = datetime('now')");
+      let paramIdx = 1;
+      if (args.content) { updates.push(`content = $${paramIdx++}`); params.push(args.content); }
+      if (args.type) { updates.push(`type = $${paramIdx++}`); params.push(args.type); }
+      if (args.importance_score !== undefined) { updates.push(`importance_score = $${paramIdx++}`); params.push(args.importance_score); }
+      if (args.tags) { updates.push(`tags = $${paramIdx++}::jsonb`); params.push(JSON.stringify(args.tags)); }
+      if (args.related_files) { updates.push(`related_files = $${paramIdx++}::jsonb`); params.push(JSON.stringify(args.related_files)); }
+      updates.push("updated_at = NOW()");
       params.push(memoryId);
-      db.prepare(`UPDATE memories SET ${updates.join(", ")} WHERE id = ?`).run(...params);
+      await query(`UPDATE memories SET ${updates.join(", ")} WHERE id = $${paramIdx}`, params);
       return ok({ updated: true, memory_id: memoryId });
     }
     case "archive":
-      db.prepare("UPDATE memories SET is_archived = 1, updated_at = datetime('now') WHERE id = ?").run(memoryId);
+      await query("UPDATE memories SET is_archived = TRUE, updated_at = NOW() WHERE id = $1", [memoryId]);
       return ok({ archived: true, memory_id: memoryId, reason: args.reason || null });
     case "reactivate":
-      db.prepare("UPDATE memories SET is_archived = 0, updated_at = datetime('now') WHERE id = ?").run(memoryId);
+      await query("UPDATE memories SET is_archived = FALSE, updated_at = NOW() WHERE id = $1", [memoryId]);
       return ok({ reactivated: true, memory_id: memoryId });
     case "delete":
-      db.prepare("DELETE FROM memories WHERE id = ?").run(memoryId);
-      try { db.prepare("DELETE FROM memories_vec WHERE id = ?").run(memoryId); } catch { /* */ }
+      await query("DELETE FROM memories WHERE id = $1", [memoryId]);
       return ok({ deleted: true, memory_id: memoryId });
     default:
       return err(`Unknown action: ${args.action}`);
   }
 }
 
-function handleList(args, ph) {
-  const db = getDb();
-  const archived = args?.include_archived ? "" : "AND is_archived = 0";
-  const rows = db.prepare(`
-    SELECT id, type, importance_score, tags, created_at, substr(content, 1, 200) as content_preview
-    FROM memories WHERE project_hash = ? ${archived}
+async function handleList(args, ph) {
+  const archived = args?.include_archived ? "" : "AND is_archived = FALSE";
+  const res = await query(`
+    SELECT id, type, importance_score, tags, created_at, LEFT(content, 200) as content_preview
+    FROM memories WHERE project_hash = $1 ${archived}
     ORDER BY created_at DESC LIMIT 200
-  `).all(ph);
+  `, [ph]);
 
   // Group by type
   const grouped = {};
-  for (const r of rows) {
+  for (const r of res.rows) {
     if (!grouped[r.type]) grouped[r.type] = [];
-    grouped[r.type].push({ ...r, tags: safeParseJson(r.tags, []) });
+    grouped[r.type].push({ ...r, tags: safeParseJsonb(r.tags, []) });
   }
 
-  return ok({ memories: grouped, total: rows.length });
+  return ok({ memories: grouped, total: res.rows.length });
 }
 
-function handleExpand(args, ph) {
-  const db = getDb();
+async function handleExpand(args, ph) {
   const ids = args.memory_ids || args.ids || [];
   if (ids.length === 0) return err("No IDs provided.");
 
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = db.prepare(
-    `SELECT * FROM memories WHERE id IN (${placeholders})`
-  ).all(...ids);
+  const placeholders = ids.map((_, i) => `$${i + 1}`).join(",");
+  const res = await query(
+    `SELECT * FROM memories WHERE id IN (${placeholders})`,
+    ids
+  );
 
   return ok({
-    memories: rows.map(r => ({
+    memories: res.rows.map(r => ({
       ...r,
-      tags: safeParseJson(r.tags, []),
-      related_files: safeParseJson(r.related_files, []),
+      tags: safeParseJsonb(r.tags, []),
+      related_files: safeParseJsonb(r.related_files, []),
     })),
   });
 }
 
-function handleExport(args, ph) {
-  const db = getDb();
-  const memories = db.prepare(
-    "SELECT * FROM memories WHERE project_hash = ? ORDER BY created_at DESC"
-  ).all(ph);
-  return ok({ memories, count: memories.length });
+async function handleExport(args, ph) {
+  const res = await query(
+    "SELECT * FROM memories WHERE project_hash = $1 ORDER BY created_at DESC",
+    [ph]
+  );
+  return ok({ memories: res.rows, count: res.rows.length });
 }
 
 // ── Knowledge Graph ──────────────────────────────────────────────────
 
-function handleGraphExplore(args, ph) {
-  const db = getDb();
+async function handleGraphExplore(args, ph) {
   const depth = Math.min(5, Math.max(1, args.depth || 2));
   const entityName = args.query || args.entity_name;
   if (!entityName) return err("query (entity name) is required.");
 
   // Find root entity
-  const root = db.prepare(
-    "SELECT * FROM entities WHERE project_hash = ? AND LOWER(name) = LOWER(?) AND is_valid = 1"
-  ).get(ph, entityName);
+  const rootRes = await query(
+    "SELECT * FROM entities WHERE project_hash = $1 AND LOWER(name) = LOWER($2) AND is_valid = TRUE",
+    [ph, entityName]
+  );
+  const root = rootRes.rows[0];
 
   if (!root) return ok({ entity: null, message: `Entity "${entityName}" not found.` });
 
@@ -867,22 +889,24 @@ function handleGraphExplore(args, ph) {
 
   for (let d = 0; d < depth && frontier.length > 0; d++) {
     const nextFrontier = [];
-    const placeholders = frontier.map(() => "?").join(",");
+    const placeholders = frontier.map((_, i) => `$${i + 1}`).join(",");
+    const placeholders2 = frontier.map((_, i) => `$${i + 1 + frontier.length}`).join(",");
 
-    const rels = db.prepare(`
+    const relsRes = await query(`
       SELECT r.*, e1.name as source_name, e2.name as target_name
       FROM relations r
       JOIN entities e1 ON r.source_id = e1.id
       JOIN entities e2 ON r.target_id = e2.id
-      WHERE r.is_valid = 1 AND (r.source_id IN (${placeholders}) OR r.target_id IN (${placeholders}))
-    `).all(...frontier, ...frontier);
+      WHERE r.is_valid = TRUE AND (r.source_id IN (${placeholders}) OR r.target_id IN (${placeholders2}))
+    `, [...frontier, ...frontier]);
 
-    for (const rel of rels) {
+    for (const rel of relsRes.rows) {
       edges.push(rel);
       for (const neighborId of [rel.source_id, rel.target_id]) {
         if (!visited.has(neighborId)) {
           visited.add(neighborId);
-          const entity = db.prepare("SELECT * FROM entities WHERE id = ?").get(neighborId);
+          const entityRes = await query("SELECT * FROM entities WHERE id = $1", [neighborId]);
+          const entity = entityRes.rows[0];
           if (entity) {
             nodes.push({ ...entity, depth: d + 1 });
             nextFrontier.push(neighborId);
@@ -896,61 +920,86 @@ function handleGraphExplore(args, ph) {
   return ok({ root, nodes, edges, depth });
 }
 
-function handleGraphStats(args, ph) {
-  const db = getDb();
-  const entityCount = db.prepare("SELECT COUNT(*) as c FROM entities WHERE project_hash = ? AND is_valid = 1").get(ph)?.c || 0;
-  const relationCount = db.prepare("SELECT COUNT(*) as c FROM relations WHERE project_hash = ? AND is_valid = 1").get(ph)?.c || 0;
+async function handleGraphStats(args, ph) {
+  const entityCountRes = await query(
+    "SELECT COUNT(*) as c FROM entities WHERE project_hash = $1 AND is_valid = TRUE",
+    [ph]
+  );
+  const entityCount = entityCountRes.rows[0]?.c || 0;
 
-  const topEntities = db.prepare(`
+  const relationCountRes = await query(
+    "SELECT COUNT(*) as c FROM relations WHERE project_hash = $1 AND is_valid = TRUE",
+    [ph]
+  );
+  const relationCount = relationCountRes.rows[0]?.c || 0;
+
+  const topEntitiesRes = await query(`
     SELECT e.name, e.type, COUNT(r.id) as connection_count
     FROM entities e
     LEFT JOIN relations r ON e.id = r.source_id OR e.id = r.target_id
-    WHERE e.project_hash = ? AND e.is_valid = 1
-    GROUP BY e.id
+    WHERE e.project_hash = $1 AND e.is_valid = TRUE
+    GROUP BY e.id, e.name, e.type
     ORDER BY connection_count DESC
     LIMIT 10
-  `).all(ph);
+  `, [ph]);
 
-  const typeDistribution = db.prepare(`
+  const typeDistributionRes = await query(`
     SELECT type, COUNT(*) as count FROM entities
-    WHERE project_hash = ? AND is_valid = 1
+    WHERE project_hash = $1 AND is_valid = TRUE
     GROUP BY type ORDER BY count DESC
-  `).all(ph);
+  `, [ph]);
 
-  return ok({ entity_count: entityCount, relation_count: relationCount, top_entities: topEntities, type_distribution: typeDistribution });
+  return ok({
+    entity_count: entityCount,
+    relation_count: relationCount,
+    top_entities: topEntitiesRes.rows,
+    type_distribution: typeDistributionRes.rows,
+  });
 }
 
-function handleGraphPath(args, ph) {
-  const db = getDb();
+async function handleGraphPath(args, ph) {
   const sourceName = args.source_entity || args.from;
   const targetName = args.target_entity || args.to;
   if (!sourceName || !targetName) return err("source_entity and target_entity are required.");
 
-  const from = db.prepare("SELECT * FROM entities WHERE project_hash = ? AND LOWER(name) = LOWER(?)").get(ph, sourceName);
-  const to = db.prepare("SELECT * FROM entities WHERE project_hash = ? AND LOWER(name) = LOWER(?)").get(ph, targetName);
+  const fromRes = await query(
+    "SELECT * FROM entities WHERE project_hash = $1 AND LOWER(name) = LOWER($2)",
+    [ph, sourceName]
+  );
+  const toRes = await query(
+    "SELECT * FROM entities WHERE project_hash = $1 AND LOWER(name) = LOWER($2)",
+    [ph, targetName]
+  );
+  const from = fromRes.rows[0];
+  const to = toRes.rows[0];
   if (!from || !to) return ok({ path: null, message: "One or both entities not found." });
 
   // BFS shortest path
-  const queue = [[from.id]];
+  const bfsQueue = [[from.id]];
   const visited = new Set([from.id]);
 
-  while (queue.length > 0) {
-    const path = queue.shift();
+  while (bfsQueue.length > 0) {
+    const path = bfsQueue.shift();
     const current = path[path.length - 1];
     if (current === to.id) {
-      const entities = path.map(id => db.prepare("SELECT * FROM entities WHERE id = ?").get(id));
+      // Resolve entity objects for the path
+      const entities = [];
+      for (const eid of path) {
+        const eRes = await query("SELECT * FROM entities WHERE id = $1", [eid]);
+        if (eRes.rows[0]) entities.push(eRes.rows[0]);
+      }
       return ok({ path: entities, length: path.length - 1 });
     }
 
-    const neighbors = db.prepare(`
-      SELECT CASE WHEN source_id = ? THEN target_id ELSE source_id END as neighbor_id, relation
-      FROM relations WHERE (source_id = ? OR target_id = ?) AND is_valid = 1
-    `).all(current, current, current);
+    const neighborsRes = await query(`
+      SELECT CASE WHEN source_id = $1 THEN target_id ELSE source_id END as neighbor_id, relation
+      FROM relations WHERE (source_id = $1 OR target_id = $1) AND is_valid = TRUE
+    `, [current]);
 
-    for (const n of neighbors) {
+    for (const n of neighborsRes.rows) {
       if (!visited.has(n.neighbor_id)) {
         visited.add(n.neighbor_id);
-        queue.push([...path, n.neighbor_id]);
+        bfsQueue.push([...path, n.neighbor_id]);
       }
     }
 
@@ -960,32 +1009,38 @@ function handleGraphPath(args, ph) {
   return ok({ path: null, message: "No path found." });
 }
 
-function handleGraphInvalidate(args, ph) {
-  const db = getDb();
-  db.prepare("UPDATE entities SET is_valid = 0, updated_at = datetime('now') WHERE project_hash = ? AND LOWER(name) = LOWER(?)").run(ph, args.entity_name);
+async function handleGraphInvalidate(args, ph) {
+  await query(
+    "UPDATE entities SET is_valid = FALSE, updated_at = NOW() WHERE project_hash = $1 AND LOWER(name) = LOWER($2)",
+    [ph, args.entity_name]
+  );
   return ok({ invalidated: true });
 }
 
-function handleGraphInvalidateRelation(args, ph) {
-  const db = getDb();
-  db.prepare("UPDATE relations SET is_valid = 0, valid_to = datetime('now') WHERE id = ?").run(args.relation_id);
+async function handleGraphInvalidateRelation(args, ph) {
+  await query(
+    "UPDATE relations SET is_valid = FALSE, valid_to = NOW() WHERE id = $1",
+    [args.relation_id]
+  );
   return ok({ invalidated: true });
 }
 
 // ── Thinking ─────────────────────────────────────────────────────────
 
-function handleStartThinking(args, ph) {
-  const db = getDb();
+async function handleStartThinking(args, ph) {
   const id = generateId();
   const goal = args.goal || args.title;
   if (!goal) return err("goal is required.");
-  db.prepare("INSERT INTO thinking_sequences (id, project_hash, title) VALUES (?, ?, ?)").run(id, ph, goal);
+  await query(
+    "INSERT INTO thinking_sequences (id, project_hash, title) VALUES ($1, $2, $3)",
+    [id, ph, goal]
+  );
   return ok({ sequence_id: id, goal, title: goal, status: "active" });
 }
 
-function handleAddThought(args, ph) {
-  const db = getDb();
-  const seq = db.prepare("SELECT * FROM thinking_sequences WHERE id = ?").get(args.sequence_id);
+async function handleAddThought(args, ph) {
+  const seqRes = await query("SELECT * FROM thinking_sequences WHERE id = $1", [args.sequence_id]);
+  const seq = seqRes.rows[0];
   if (!seq) return err("Thinking sequence not found.");
 
   const thought = args.thought || args.content;
@@ -993,10 +1048,16 @@ function handleAddThought(args, ph) {
 
   const id = generateId();
   const thoughtType = args.thought_type || args.type || "general";
-  db.prepare("INSERT INTO thinking_thoughts (id, sequence_id, type, content) VALUES (?, ?, ?, ?)").run(id, args.sequence_id, thoughtType, thought);
+  await query(
+    "INSERT INTO thinking_thoughts (id, sequence_id, type, content) VALUES ($1, $2, $3, $4)",
+    [id, args.sequence_id, thoughtType, thought]
+  );
 
   if (thoughtType === "conclusion") {
-    db.prepare("UPDATE thinking_sequences SET status = 'completed', updated_at = datetime('now') WHERE id = ?").run(args.sequence_id);
+    await query(
+      "UPDATE thinking_sequences SET status = 'completed', updated_at = NOW() WHERE id = $1",
+      [args.sequence_id]
+    );
   }
 
   return ok({ thought_id: id, thought_type: thoughtType, type: thoughtType, sequence_status: thoughtType === "conclusion" ? "completed" : "active" });
@@ -1004,46 +1065,53 @@ function handleAddThought(args, ph) {
 
 // ── Tasks ────────────────────────────────────────────────────────────
 
-function handleTasks(args, ph) {
-  const db = getDb();
+async function handleTasks(args, ph) {
   const taskId = args.task_id || args.id;
   const taskDescription = args.task_description || args.description;
 
   switch (args.action) {
     case "create": {
       const id = generateId();
-      db.prepare("INSERT INTO tasks (id, project_hash, title, description, priority) VALUES (?, ?, ?, ?, ?)").run(
-        id, ph, args.title || taskDescription || "Untitled", taskDescription || null, args.priority || "medium"
+      await query(
+        "INSERT INTO tasks (id, project_hash, title, description, priority) VALUES ($1, $2, $3, $4, $5)",
+        [id, ph, args.title || taskDescription || "Untitled", taskDescription || null, args.priority || "medium"]
       );
       return ok({ id, task_id: id, created: true });
     }
     case "get": {
       const includeCompleted = args.include_completed !== false;
       const statusFilter = includeCompleted ? "" : "AND status != 'completed'";
-      const tasks = db.prepare(`SELECT * FROM tasks WHERE project_hash = ? ${statusFilter} ORDER BY status ASC, created_at DESC`).all(ph);
-      return ok({ tasks });
+      const tasksRes = await query(
+        `SELECT * FROM tasks WHERE project_hash = $1 ${statusFilter} ORDER BY status ASC, created_at DESC`,
+        [ph]
+      );
+      return ok({ tasks: tasksRes.rows });
     }
     case "update": {
       if (!taskId) return err("task_id is required.");
       const updates = [];
       const params = [];
-      if (args.title) { updates.push("title = ?"); params.push(args.title); }
-      if (taskDescription) { updates.push("description = ?"); params.push(taskDescription); }
-      if (args.status) { updates.push("status = ?"); params.push(args.status); }
-      if (args.priority) { updates.push("priority = ?"); params.push(args.priority); }
-      updates.push("updated_at = datetime('now')");
+      let paramIdx = 1;
+      if (args.title) { updates.push(`title = $${paramIdx++}`); params.push(args.title); }
+      if (taskDescription) { updates.push(`description = $${paramIdx++}`); params.push(taskDescription); }
+      if (args.status) { updates.push(`status = $${paramIdx++}`); params.push(args.status); }
+      if (args.priority) { updates.push(`priority = $${paramIdx++}`); params.push(args.priority); }
+      updates.push("updated_at = NOW()");
       params.push(taskId);
-      db.prepare(`UPDATE tasks SET ${updates.join(", ")} WHERE id = ?`).run(...params);
+      await query(`UPDATE tasks SET ${updates.join(", ")} WHERE id = $${paramIdx}`, params);
       return ok({ updated: true, task_id: taskId });
     }
     case "complete": {
       if (!taskId) return err("task_id is required.");
-      db.prepare("UPDATE tasks SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(taskId);
+      await query(
+        "UPDATE tasks SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = $1",
+        [taskId]
+      );
       return ok({ completed: true, task_id: taskId });
     }
     case "delete": {
       if (!taskId) return err("task_id is required.");
-      db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
+      await query("DELETE FROM tasks WHERE id = $1", [taskId]);
       return ok({ deleted: true, task_id: taskId });
     }
     default:
@@ -1053,9 +1121,9 @@ function handleTasks(args, ph) {
 
 // ── Sessions / Rules / Insights ──────────────────────────────────────
 
-function handleSessionRecap(args, ph) {
+async function handleSessionRecap(args, ph) {
   const daysBack = Math.min(30, Math.max(1, args?.days_back || 7));
-  const activity = getRecentActivity(ph, daysBack, 50);
+  const activity = await getRecentActivity(ph, daysBack, 50);
 
   const typeBreakdown = {};
   for (const m of activity) {
@@ -1065,9 +1133,12 @@ function handleSessionRecap(args, ph) {
   return ok({ activity, type_breakdown: typeBreakdown, days_back: daysBack, count: activity.length });
 }
 
-function handleGetRules(args, ph) {
-  const db = getDb();
-  const userRules = db.prepare("SELECT * FROM rules WHERE project_hash = ? AND is_active = 1").all(ph);
+async function handleGetRules(args, ph) {
+  const rulesRes = await query(
+    "SELECT * FROM rules WHERE project_hash = $1 AND is_active = TRUE",
+    [ph]
+  );
+  const userRules = rulesRes.rows;
   const builtInRules = getBuiltInRules(_projectManifest);
   return ok({
     rules: userRules,
@@ -1076,78 +1147,93 @@ function handleGetRules(args, ph) {
   });
 }
 
-function handleInsights(args, ph) {
-  const db = getDb();
+async function handleInsights(args, ph) {
+  const totalMemoriesRes = await query(
+    "SELECT COUNT(*) as c FROM memories WHERE project_hash = $1 AND is_archived = FALSE",
+    [ph]
+  );
+  const totalMemories = totalMemoriesRes.rows[0]?.c || 0;
 
-  const totalMemories = db.prepare("SELECT COUNT(*) as c FROM memories WHERE project_hash = ? AND is_archived = 0").get(ph)?.c || 0;
-  const totalEntities = db.prepare("SELECT COUNT(*) as c FROM entities WHERE project_hash = ? AND is_valid = 1").get(ph)?.c || 0;
-  const totalTasks = db.prepare("SELECT COUNT(*) as c FROM tasks WHERE project_hash = ?").get(ph)?.c || 0;
-  const openTasks = db.prepare("SELECT COUNT(*) as c FROM tasks WHERE project_hash = ? AND status = 'open'").get(ph)?.c || 0;
+  const totalEntitiesRes = await query(
+    "SELECT COUNT(*) as c FROM entities WHERE project_hash = $1 AND is_valid = TRUE",
+    [ph]
+  );
+  const totalEntities = totalEntitiesRes.rows[0]?.c || 0;
 
-  const typeBreakdown = db.prepare(`
+  const totalTasksRes = await query(
+    "SELECT COUNT(*) as c FROM tasks WHERE project_hash = $1",
+    [ph]
+  );
+  const totalTasks = totalTasksRes.rows[0]?.c || 0;
+
+  const openTasksRes = await query(
+    "SELECT COUNT(*) as c FROM tasks WHERE project_hash = $1 AND status = 'open'",
+    [ph]
+  );
+  const openTasks = openTasksRes.rows[0]?.c || 0;
+
+  const typeBreakdownRes = await query(`
     SELECT type, COUNT(*) as count, AVG(importance_score) as avg_importance
-    FROM memories WHERE project_hash = ? AND is_archived = 0
+    FROM memories WHERE project_hash = $1 AND is_archived = FALSE
     GROUP BY type ORDER BY count DESC
-  `).all(ph);
+  `, [ph]);
 
-  const recentBugs = db.prepare(`
-    SELECT * FROM postmortems WHERE project_hash = ?
+  const recentBugsRes = await query(`
+    SELECT * FROM postmortems WHERE project_hash = $1
     ORDER BY created_at DESC LIMIT 5
-  `).all(ph);
+  `, [ph]);
 
   return ok({
     total_memories: totalMemories,
     total_entities: totalEntities,
     total_tasks: totalTasks,
     open_tasks: openTasks,
-    type_breakdown: typeBreakdown,
-    recent_postmortems: recentBugs,
+    type_breakdown: typeBreakdownRes.rows,
+    recent_postmortems: recentBugsRes.rows,
   });
 }
 
 // ── Postmortems ──────────────────────────────────────────────────────
 
-function handlePostmortem(args, ph) {
-  const db = getDb();
+async function handlePostmortem(args, ph) {
   const id = generateId();
 
-  db.prepare(`
+  await query(`
     INSERT INTO postmortems (id, project_hash, title, bug_category, description, root_cause, fix_description, prevention, affected_files, warning_pattern, severity)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+  `, [
     id, ph, args.title, args.bug_category, args.description,
     args.root_cause, args.fix_description, args.prevention || null,
     JSON.stringify(args.affected_files || []), args.warning_pattern || null,
     args.severity || "medium"
-  );
+  ]);
 
   // Create/update pattern from warning_pattern
   if (args.warning_pattern) {
     const patId = generateId();
-    db.prepare(`
+    await query(`
       INSERT INTO patterns (id, project_hash, pattern, description, category)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(patId, ph, args.warning_pattern, `From postmortem: ${args.title}`, args.bug_category || "general");
+      VALUES ($1, $2, $3, $4, $5)
+    `, [patId, ph, args.warning_pattern, `From postmortem: ${args.title}`, args.bug_category || "general"]);
   }
 
   return ok({ id, recorded: true });
 }
 
-function handlePostmortemWarnings(args, ph) {
-  const db = getDb();
+async function handlePostmortemWarnings(args, ph) {
   const files = args.files || [];
   if (files.length === 0) return ok({ warnings: [] });
 
   const warnings = [];
 
   for (const file of files) {
-    // Check postmortems with matching files
-    const postmortems = db.prepare(`
-      SELECT * FROM postmortems WHERE project_hash = ? AND affected_files LIKE ?
+    // Check postmortems with matching files — affected_files is JSONB
+    const postmortemsRes = await query(`
+      SELECT * FROM postmortems WHERE project_hash = $1 AND affected_files::text ILIKE $2
       ORDER BY created_at DESC LIMIT 5
-    `).all(ph, `%${file}%`);
+    `, [ph, `%${file}%`]);
 
-    for (const pm of postmortems) {
+    for (const pm of postmortemsRes.rows) {
       warnings.push({
         type: "postmortem",
         file,
@@ -1160,11 +1246,11 @@ function handlePostmortemWarnings(args, ph) {
     }
 
     // Check active patterns
-    const patterns = db.prepare(`
-      SELECT * FROM patterns WHERE project_hash = ? AND status != 'deprecated' AND confidence > 0.3
-    `).all(ph);
+    const patternsRes = await query(`
+      SELECT * FROM patterns WHERE project_hash = $1 AND status != 'deprecated' AND confidence > 0.3
+    `, [ph]);
 
-    for (const pat of patterns) {
+    for (const pat of patternsRes.rows) {
       if (pat.pattern) {
         try {
           const regex = new RegExp(pat.pattern, "i");
@@ -1186,26 +1272,26 @@ function handlePostmortemWarnings(args, ph) {
   return ok({ warnings, count: warnings.length });
 }
 
-function handlePatternFeedback(args, ph) {
-  const db = getDb();
-  const pattern = db.prepare("SELECT * FROM patterns WHERE id = ?").get(args.pattern_id);
+async function handlePatternFeedback(args, ph) {
+  const patternRes = await query("SELECT * FROM patterns WHERE id = $1", [args.pattern_id]);
+  const pattern = patternRes.rows[0];
   if (!pattern) return err("Pattern not found.");
 
   const delta = args.outcome === "success" ? 0.05 : -0.10;
   const newConfidence = Math.max(0, Math.min(1, pattern.confidence + delta));
   const field = args.outcome === "success" ? "success_count" : "failure_count";
 
-  db.prepare(`
-    UPDATE patterns SET confidence = ?, ${field} = ${field} + 1, applied_count = applied_count + 1,
+  await query(`
+    UPDATE patterns SET confidence = $1, ${field} = ${field} + 1, applied_count = applied_count + 1,
     status = CASE
-      WHEN ? >= 0.85 AND applied_count >= 5 THEN 'promoted'
-      WHEN ? < 0.15 THEN 'deprecated'
-      WHEN ? >= 0.6 THEN 'active'
+      WHEN $1 >= 0.85 AND applied_count >= 5 THEN 'promoted'
+      WHEN $1 < 0.15 THEN 'deprecated'
+      WHEN $1 >= 0.6 THEN 'active'
       ELSE status
     END,
-    updated_at = datetime('now')
-    WHERE id = ?
-  `).run(newConfidence, newConfidence, newConfidence, newConfidence, args.pattern_id);
+    updated_at = NOW()
+    WHERE id = $2
+  `, [newConfidence, args.pattern_id]);
 
   return ok({ pattern_id: args.pattern_id, new_confidence: newConfidence, outcome: args.outcome });
 }
@@ -1239,18 +1325,19 @@ function handleCodeQualityCheck(args, ph) {
 
 // ── Audit History ────────────────────────────────────────────────────
 
-function handleAuditHistory(args, ph) {
-  const db = getDb();
-  const memory = db.prepare("SELECT * FROM memories WHERE id = ?").get(args.memory_id);
+async function handleAuditHistory(args, ph) {
+  const memoryRes = await query("SELECT * FROM memories WHERE id = $1", [args.memory_id]);
+  const memory = memoryRes.rows[0];
   if (!memory) return err("Memory not found.");
 
-  const accesses = db.prepare(
-    "SELECT * FROM access_log WHERE memory_id = ? ORDER BY created_at DESC LIMIT 20"
-  ).all(args.memory_id);
+  const accessRes = await query(
+    "SELECT * FROM access_log WHERE memory_id = $1 ORDER BY created_at DESC LIMIT 20",
+    [args.memory_id]
+  );
 
   return ok({
-    memory: { ...memory, tags: safeParseJson(memory.tags, []), related_files: safeParseJson(memory.related_files, []) },
-    access_history: accesses,
+    memory: { ...memory, tags: safeParseJsonb(memory.tags, []), related_files: safeParseJsonb(memory.related_files, []) },
+    access_history: accessRes.rows,
     total_retrievals: memory.retrieval_count,
   });
 }
@@ -1258,29 +1345,28 @@ function handleAuditHistory(args, ph) {
 // ── Smart Context ────────────────────────────────────────────────────
 
 async function handleSmartContext(args, ph) {
-  const query = args.query || "";
+  const q = args.query || "";
   const files = args.files || [];
   const tokenBudget = args.token_budget || 4000;
 
   // Detect intent
-  const intent = detectIntent(query);
+  const intent = detectIntent(q);
 
   // Parallel fetch
   const [searchResult, warnings, rules] = await Promise.all([
-    searchMemories({ query, projectHash: ph, limit: 15 }, _embeddingConfig),
+    searchMemories({ query: q, projectHash: ph, limit: 15 }, _embeddingConfig),
     files.length > 0 ? handlePostmortemWarnings({ files }, ph) : Promise.resolve({ content: [{ text: JSON.stringify({ warnings: [] }) }] }),
-    Promise.resolve(handleGetRules({}, ph)),
+    Promise.resolve(await handleGetRules({}, ph)),
   ]);
 
   // Graph top entities
-  const db = getDb();
-  const topEntities = db.prepare(`
+  const topEntitiesRes = await query(`
     SELECT e.name, e.type, COUNT(r.id) as connections
     FROM entities e
     LEFT JOIN relations r ON e.id = r.source_id OR e.id = r.target_id
-    WHERE e.project_hash = ? AND e.is_valid = 1
-    GROUP BY e.id ORDER BY connections DESC LIMIT 5
-  `).all(ph);
+    WHERE e.project_hash = $1 AND e.is_valid = TRUE
+    GROUP BY e.id, e.name, e.type ORDER BY connections DESC LIMIT 5
+  `, [ph]);
 
   const parsedRules = safeParseJson(rules.content[0].text, {});
   const parsedWarnings = safeParseJson(warnings.content[0].text, {});
@@ -1290,7 +1376,7 @@ async function handleSmartContext(args, ph) {
     memories: searchResult.results || [],
     rules: parsedRules.built_in_rules || [],
     warnings: parsedWarnings.warnings || [],
-    entities: topEntities,
+    entities: topEntitiesRes.rows,
   }, tokenBudget);
 
   return ok({
@@ -1301,41 +1387,42 @@ async function handleSmartContext(args, ph) {
   });
 }
 
-function detectIntent(query) {
-  const q = query.toLowerCase();
-  if (/bug|fix|error|crash|fail|broken|issue|debug/.test(q)) return "debug";
-  if (/architect|design|structur|pattern|approach/.test(q)) return "architecture";
-  if (/refactor|clean|simplif|extract|split/.test(q)) return "refactor";
-  if (/histor|when|change|previous|before/.test(q)) return "history";
+function detectIntent(q) {
+  const lower = q.toLowerCase();
+  if (/bug|fix|error|crash|fail|broken|issue|debug/.test(lower)) return "debug";
+  if (/architect|design|structur|pattern|approach/.test(lower)) return "architecture";
+  if (/refactor|clean|simplif|extract|split/.test(lower)) return "refactor";
+  if (/histor|when|change|previous|before/.test(lower)) return "history";
   return "search";
 }
 
 // ── Knowledge Graph — Temporal ────────────────────────────────────────
 
-function handleGraphTimeline(args, ph) {
-  const db = getDb();
+async function handleGraphTimeline(args, ph) {
   const limit = Math.min(100, Math.max(1, args.limit || 50));
 
   // Find the entity
-  const entity = db.prepare(
-    "SELECT * FROM entities WHERE project_hash = ? AND LOWER(name) = LOWER(?)"
-  ).get(ph, args.entity_name);
+  const entityRes = await query(
+    "SELECT * FROM entities WHERE project_hash = $1 AND LOWER(name) = LOWER($2)",
+    [ph, args.entity_name]
+  );
+  const entity = entityRes.rows[0];
 
   if (!entity) return ok({ timeline: [], count: 0, message: `Entity "${args.entity_name}" not found.` });
 
   // Get all relations involving this entity (both as source and target)
-  const relations = db.prepare(`
+  const relationsRes = await query(`
     SELECT r.*, e1.name as source_name, e2.name as target_name
     FROM relations r
     JOIN entities e1 ON r.source_id = e1.id
     JOIN entities e2 ON r.target_id = e2.id
-    WHERE r.project_hash = ? AND (r.source_id = ? OR r.target_id = ?)
+    WHERE r.project_hash = $1 AND (r.source_id = $2 OR r.target_id = $2)
     ORDER BY r.created_at DESC
-  `).all(ph, entity.id, entity.id);
+  `, [ph, entity.id]);
 
   // Build timeline events
   const events = [];
-  for (const rel of relations) {
+  for (const rel of relationsRes.rows) {
     events.push({
       event_type: "relation_created",
       event_time: rel.valid_from || rel.created_at,
@@ -1368,34 +1455,34 @@ function handleGraphTimeline(args, ph) {
   return ok({ entity: entity.name, timeline: limited, count: limited.length });
 }
 
-function handleGraphAtTime(args, ph) {
-  const db = getDb();
-
+async function handleGraphAtTime(args, ph) {
   if (!args.entity_name || !args.at_time) return err("entity_name and at_time are required.");
 
   // Find the entity
-  const entity = db.prepare(
-    "SELECT * FROM entities WHERE project_hash = ? AND LOWER(name) = LOWER(?)"
-  ).get(ph, args.entity_name);
+  const entityRes = await query(
+    "SELECT * FROM entities WHERE project_hash = $1 AND LOWER(name) = LOWER($2)",
+    [ph, args.entity_name]
+  );
+  const entity = entityRes.rows[0];
 
   if (!entity) return ok({ relations: [], count: 0, message: `Entity "${args.entity_name}" not found.` });
 
   // Query relations active at the specified time
-  const relations = db.prepare(`
+  const relationsRes = await query(`
     SELECT r.*, e1.name as source_name, e2.name as target_name
     FROM relations r
     JOIN entities e1 ON r.source_id = e1.id
     JOIN entities e2 ON r.target_id = e2.id
-    WHERE r.project_hash = ?
-      AND (r.source_id = ? OR r.target_id = ?)
-      AND r.valid_from <= ?
-      AND (r.valid_to IS NULL OR r.valid_to > ?)
-  `).all(ph, entity.id, entity.id, args.at_time, args.at_time);
+    WHERE r.project_hash = $1
+      AND (r.source_id = $2 OR r.target_id = $2)
+      AND r.valid_from <= $3
+      AND (r.valid_to IS NULL OR r.valid_to > $3)
+  `, [ph, entity.id, args.at_time]);
 
   return ok({
     entity: entity.name,
     at_time: args.at_time,
-    relations: relations.map(r => ({
+    relations: relationsRes.rows.map(r => ({
       relation_id: r.id,
       relation: r.relation,
       source_name: r.source_name,
@@ -1404,30 +1491,99 @@ function handleGraphAtTime(args, ph) {
       valid_from: r.valid_from,
       valid_to: r.valid_to,
     })),
-    count: relations.length,
+    count: relationsRes.rows.length,
   });
 }
 
-function handleGraphContradictions(args, ph) {
-  const db = getDb();
-
+async function handleGraphContradictions(args, ph) {
   // Scope filter
   let entityFilter = "";
   const params = [ph];
   if (args.entity_name) {
-    const entity = db.prepare(
-      "SELECT id FROM entities WHERE project_hash = ? AND LOWER(name) = LOWER(?)"
-    ).get(ph, args.entity_name);
+    const entityRes = await query(
+      "SELECT id FROM entities WHERE project_hash = $1 AND LOWER(name) = LOWER($2)",
+      [ph, args.entity_name]
+    );
+    const entity = entityRes.rows[0];
     if (entity) {
-      entityFilter = " AND (r1.source_id = ? OR r1.target_id = ?)";
-      params.push(entity.id, entity.id);
+      entityFilter = " AND (r1.source_id = $4 OR r1.target_id = $4)";
+      params.push(entity.id);
     }
   }
 
   // Case 1: Circular — A→B and B→A with same directional relation type
   const circularTypes = ["depends_on", "extends", "imports"];
-  const typePlaceholders = circularTypes.map(() => "?").join(",");
-  const circular = db.prepare(`
+
+  // Build the query with numbered params for circular types
+  // params so far: [ph] or [ph, entityId]
+  // We need to add circularTypes as params
+  const baseParamCount = params.length;
+  const typePlaceholders = circularTypes.map((_, i) => `$${baseParamCount + i + 1}`).join(",");
+  const circularParams = [...params, ...circularTypes];
+
+  // Adjust entityFilter param numbers if entity was found
+  let adjustedEntityFilter = entityFilter;
+  if (args.entity_name && params.length > 1) {
+    // entityId is at params[1], but after adding circularTypes it needs to be re-indexed
+    // Actually let's restructure: put ph first, then circularTypes, then entityId
+    const circParams = [ph, ...circularTypes];
+    const typeP = circularTypes.map((_, i) => `$${i + 2}`).join(",");
+    let entFilter = "";
+    if (params.length > 1) {
+      circParams.push(params[1]); // entityId
+      const entIdx = circParams.length;
+      entFilter = ` AND (r1.source_id = $${entIdx} OR r1.target_id = $${entIdx})`;
+    }
+
+    const circularRes = await query(`
+      SELECT r1.id as relation1_id, r2.id as relation2_id,
+             e1.name as entity_a, e2.name as entity_b,
+             r1.relation as relation_type
+      FROM relations r1
+      JOIN relations r2 ON r1.source_id = r2.target_id AND r1.target_id = r2.source_id AND r1.relation = r2.relation
+      JOIN entities e1 ON r1.source_id = e1.id
+      JOIN entities e2 ON r1.target_id = e2.id
+      WHERE r1.project_hash = $1 AND r1.is_valid = TRUE AND r2.is_valid = TRUE
+        AND r1.relation IN (${typeP})
+        AND r1.id < r2.id
+        ${entFilter}
+    `, circParams);
+
+    // Case 2: Conflicting — same entity pair with logically conflicting relation types
+    const conflictingPairs = [
+      ["replaces", "depends_on"],
+      ["replaces", "extends"],
+    ];
+
+    const conflicting = [];
+    for (const [typeA, typeB] of conflictingPairs) {
+      const conflictsRes = await query(`
+        SELECT r1.id as relation1_id, r2.id as relation2_id,
+               e1.name as source_name, e2.name as target_name,
+               r1.relation as relation1_type, r2.relation as relation2_type
+        FROM relations r1
+        JOIN relations r2 ON r1.source_id = r2.source_id AND r1.target_id = r2.target_id
+        JOIN entities e1 ON r1.source_id = e1.id
+        JOIN entities e2 ON r1.target_id = e2.id
+        WHERE r1.project_hash = $1 AND r1.is_valid = TRUE AND r2.is_valid = TRUE
+          AND r1.relation = $2 AND r2.relation = $3
+          AND r1.id != r2.id
+      `, [ph, typeA, typeB]);
+
+      conflicting.push(...conflictsRes.rows);
+    }
+
+    return ok({
+      circular: circularRes.rows,
+      conflicting,
+      circular_count: circularRes.rows.length,
+      conflicting_count: conflicting.length,
+    });
+  }
+
+  // No entity filter case — simpler
+  const typeP2 = circularTypes.map((_, i) => `$${i + 2}`).join(",");
+  const circularRes = await query(`
     SELECT r1.id as relation1_id, r2.id as relation2_id,
            e1.name as entity_a, e2.name as entity_b,
            r1.relation as relation_type
@@ -1435,13 +1591,11 @@ function handleGraphContradictions(args, ph) {
     JOIN relations r2 ON r1.source_id = r2.target_id AND r1.target_id = r2.source_id AND r1.relation = r2.relation
     JOIN entities e1 ON r1.source_id = e1.id
     JOIN entities e2 ON r1.target_id = e2.id
-    WHERE r1.project_hash = ? AND r1.is_valid = 1 AND r2.is_valid = 1
-      AND r1.relation IN (${typePlaceholders})
+    WHERE r1.project_hash = $1 AND r1.is_valid = TRUE AND r2.is_valid = TRUE
+      AND r1.relation IN (${typeP2})
       AND r1.id < r2.id
-      ${entityFilter}
-  `).all(...params.slice(0, 1), ...circularTypes, ...params.slice(1));
+  `, [ph, ...circularTypes]);
 
-  // Case 2: Conflicting — same entity pair with logically conflicting relation types
   const conflictingPairs = [
     ["replaces", "depends_on"],
     ["replaces", "extends"],
@@ -1449,7 +1603,7 @@ function handleGraphContradictions(args, ph) {
 
   const conflicting = [];
   for (const [typeA, typeB] of conflictingPairs) {
-    const conflicts = db.prepare(`
+    const conflictsRes = await query(`
       SELECT r1.id as relation1_id, r2.id as relation2_id,
              e1.name as source_name, e2.name as target_name,
              r1.relation as relation1_type, r2.relation as relation2_type
@@ -1457,35 +1611,35 @@ function handleGraphContradictions(args, ph) {
       JOIN relations r2 ON r1.source_id = r2.source_id AND r1.target_id = r2.target_id
       JOIN entities e1 ON r1.source_id = e1.id
       JOIN entities e2 ON r1.target_id = e2.id
-      WHERE r1.project_hash = ? AND r1.is_valid = 1 AND r2.is_valid = 1
-        AND r1.relation = ? AND r2.relation = ?
+      WHERE r1.project_hash = $1 AND r1.is_valid = TRUE AND r2.is_valid = TRUE
+        AND r1.relation = $2 AND r2.relation = $3
         AND r1.id != r2.id
-    `).all(ph, typeA, typeB);
+    `, [ph, typeA, typeB]);
 
-    conflicting.push(...conflicts);
+    conflicting.push(...conflictsRes.rows);
   }
 
   return ok({
-    circular,
+    circular: circularRes.rows,
     conflicting,
-    circular_count: circular.length,
+    circular_count: circularRes.rows.length,
     conflicting_count: conflicting.length,
   });
 }
 
-function handleGraphConsolidate(args, ph) {
-  const db = getDb();
+async function handleGraphConsolidate(args, ph) {
   const threshold = Math.min(1.0, Math.max(0.8, args.similarity_threshold ?? 0.92));
   const dryRun = args.dry_run !== false;
 
   // Find entities grouped by type
-  const entities = db.prepare(
-    "SELECT * FROM entities WHERE project_hash = ? AND is_valid = 1 ORDER BY type, name"
-  ).all(ph);
+  const entitiesRes = await query(
+    "SELECT * FROM entities WHERE project_hash = $1 AND is_valid = TRUE ORDER BY type, name",
+    [ph]
+  );
 
   // Group by type for comparison
   const byType = {};
-  for (const e of entities) {
+  for (const e of entitiesRes.rows) {
     if (!byType[e.type]) byType[e.type] = [];
     byType[e.type].push(e);
   }
@@ -1499,17 +1653,24 @@ function handleGraphConsolidate(args, ph) {
     let embeddings = null;
     try {
       const ids = group.map(e => e.id);
-      const placeholders = ids.map(() => "?").join(",");
-      const vecRows = db.prepare(
-        `SELECT id, embedding FROM entities_vec WHERE id IN (${placeholders})`
-      ).all(...ids);
-      if (vecRows.length > 0) {
+      const placeholders = ids.map((_, i) => `$${i + 1}`).join(",");
+      const vecRes = await query(
+        `SELECT id, embedding FROM entities WHERE id IN (${placeholders}) AND embedding IS NOT NULL`,
+        ids
+      );
+      if (vecRes.rows.length > 0) {
         embeddings = new Map();
-        for (const row of vecRows) {
-          embeddings.set(row.id, new Float32Array(row.embedding));
+        for (const row of vecRes.rows) {
+          // pgvector returns string like '[0.1,0.2,...]' — parse to Float32Array
+          if (row.embedding) {
+            const arr = typeof row.embedding === "string"
+              ? JSON.parse(row.embedding)
+              : row.embedding;
+            embeddings.set(row.id, new Float32Array(arr));
+          }
         }
       }
-    } catch { /* entities_vec may not have entries */ }
+    } catch { /* entities may not have embeddings */ }
 
     for (let i = 0; i < group.length; i++) {
       for (let j = i + 1; j < group.length; j++) {
@@ -1547,30 +1708,28 @@ function handleGraphConsolidate(args, ph) {
 
   if (!dryRun && candidates.length > 0) {
     // Merge: keep first (winner), re-point from second (loser)
-    const merge = db.transaction(() => {
-      let merged = 0;
-      for (const pair of candidates) {
-        const winnerId = pair.entity_a.id;
-        const loserId = pair.entity_b.id;
+    let merged = 0;
+    for (const pair of candidates) {
+      const winnerId = pair.entity_a.id;
+      const loserId = pair.entity_b.id;
 
-        // Re-point relations from loser to winner
-        db.prepare("UPDATE relations SET source_id = ? WHERE source_id = ?").run(winnerId, loserId);
-        db.prepare("UPDATE relations SET target_id = ? WHERE target_id = ?").run(winnerId, loserId);
+      // Re-point relations from loser to winner
+      await query("UPDATE relations SET source_id = $1 WHERE source_id = $2", [winnerId, loserId]);
+      await query("UPDATE relations SET target_id = $1 WHERE target_id = $2", [winnerId, loserId]);
 
-        // Re-point entity mentions from loser to winner
-        // Use INSERT OR IGNORE to handle potential duplicates
-        db.prepare("INSERT OR IGNORE INTO entity_mentions (memory_id, entity_id) SELECT memory_id, ? FROM entity_mentions WHERE entity_id = ?").run(winnerId, loserId);
-        db.prepare("DELETE FROM entity_mentions WHERE entity_id = ?").run(loserId);
+      // Re-point entity mentions from loser to winner
+      await query(
+        "INSERT INTO entity_mentions (memory_id, entity_id) SELECT memory_id, $1 FROM entity_mentions WHERE entity_id = $2 ON CONFLICT DO NOTHING",
+        [winnerId, loserId]
+      );
+      await query("DELETE FROM entity_mentions WHERE entity_id = $1", [loserId]);
 
-        // Invalidate loser entity
-        db.prepare("UPDATE entities SET is_valid = 0, updated_at = datetime('now') WHERE id = ?").run(loserId);
-        merged++;
-      }
-      return merged;
-    });
+      // Invalidate loser entity
+      await query("UPDATE entities SET is_valid = FALSE, updated_at = NOW() WHERE id = $1", [loserId]);
+      merged++;
+    }
 
-    const mergedCount = merge();
-    return ok({ duplicates: candidates, count: candidates.length, dry_run: false, merged: mergedCount });
+    return ok({ duplicates: candidates, count: candidates.length, dry_run: false, merged });
   }
 
   return ok({ duplicates: candidates, count: candidates.length, dry_run: dryRun });
@@ -1579,7 +1738,6 @@ function handleGraphConsolidate(args, ph) {
 // ── Document Upload ──────────────────────────────────────────────────
 
 async function handleUploadDocument(args, ph) {
-  const db = getDb();
   const content = args.file_content || "";
   const fileName = args.file_name || "document";
   const tags = args.tags || [];
@@ -1594,47 +1752,52 @@ async function handleUploadDocument(args, ph) {
 
   // Create upload record
   const uploadId = generateId();
-  db.prepare(`
+  await query(`
     INSERT INTO document_uploads (id, project_hash, file_name, file_type, file_size, status)
-    VALUES (?, ?, ?, 'text', ?, 'processing')
-  `).run(uploadId, ph, fileName, sizeBytes);
+    VALUES ($1, $2, $3, 'text', $4, 'processing')
+  `, [uploadId, ph, fileName, sizeBytes]);
 
   // Chunk content: split on double newlines, max 2000 chars per chunk
   const chunks = chunkContent(content);
 
   try {
-    const insertMemory = db.prepare(`
-      INSERT INTO memories (id, project_hash, content, type, importance_score, tags, related_files, session_name, content_hash)
-      VALUES (?, ?, ?, 'document-chunk', 0.4, ?, '[]', ?, ?)
-    `);
-
     for (let i = 0; i < chunks.length; i++) {
       const chunkId = generateId();
       const chunkTags = [...tags, `doc:${fileName}`, `chunk:${i + 1}/${chunks.length}`];
       const hash = contentHash(chunks[i]);
 
-      insertMemory.run(
+      await query(`
+        INSERT INTO memories (id, project_hash, content, type, importance_score, tags, related_files, session_name, content_hash)
+        VALUES ($1, $2, $3, 'document-chunk', 0.4, $4::jsonb, '[]'::jsonb, $5, $6)
+      `, [
         chunkId, ph, chunks[i], JSON.stringify(chunkTags),
         `upload:${uploadId}`, hash
-      );
+      ]);
 
       // Generate embedding for the chunk
       if (_embeddingConfig) {
         const embedding = await generateEmbedding(chunks[i], _embeddingConfig);
         if (embedding) {
           try {
-            db.prepare("INSERT INTO memories_vec (id, embedding) VALUES (?, ?)").run(chunkId, embedding.buffer);
+            const vec = formatEmbedding(embedding);
+            await query("UPDATE memories SET embedding = $1::vector WHERE id = $2", [vec, chunkId]);
           } catch { /* vec insert error */ }
         }
       }
     }
 
     // Update upload record
-    db.prepare("UPDATE document_uploads SET status = 'completed', chunk_count = ? WHERE id = ?").run(chunks.length, uploadId);
+    await query(
+      "UPDATE document_uploads SET status = 'completed', chunk_count = $1 WHERE id = $2",
+      [chunks.length, uploadId]
+    );
 
     return ok({ upload_id: uploadId, chunk_count: chunks.length, file_name: fileName, file_size: sizeBytes, status: "completed" });
   } catch (e) {
-    db.prepare("UPDATE document_uploads SET status = 'failed', error_message = ? WHERE id = ?").run(e.message, uploadId);
+    await query(
+      "UPDATE document_uploads SET status = 'failed', error_message = $1 WHERE id = $2",
+      [e.message, uploadId]
+    );
     return err(`Document upload failed: ${e.message}`);
   }
 }
@@ -1659,43 +1822,52 @@ function chunkContent(content) {
 
 // ── Project Docs ─────────────────────────────────────────────────────
 
-function handleProjects(args, ph) {
-  const db = getDb();
+async function handleProjects(args, ph) {
   const action = args.action;
 
   switch (action) {
     case "list_all": {
-      const docs = db.prepare(
-        "SELECT id, project_hash, doc_type, title, version, created_at, updated_at FROM project_docs WHERE project_hash = ? ORDER BY updated_at DESC"
-      ).all(ph);
-      return ok({ docs });
+      const docsRes = await query(
+        "SELECT id, project_hash, doc_type, title, version, created_at, updated_at FROM project_docs WHERE project_hash = $1 ORDER BY updated_at DESC",
+        [ph]
+      );
+      return ok({ docs: docsRes.rows });
     }
     case "create": {
       if (!args.doc_type || !args.content) return err("doc_type and content are required.");
       const id = generateId();
       const title = args.title || `${args.doc_type} - ${ph}`;
-      db.prepare(
-        "INSERT INTO project_docs (id, project_hash, doc_type, title, content) VALUES (?, ?, ?, ?, ?)"
-      ).run(id, ph, args.doc_type, title, args.content);
+      await query(
+        "INSERT INTO project_docs (id, project_hash, doc_type, title, content) VALUES ($1, $2, $3, $4, $5)",
+        [id, ph, args.doc_type, title, args.content]
+      );
       return ok({ id, doc_type: args.doc_type, title, version: 1, created_at: new Date().toISOString() });
     }
     case "update": {
       if (!args.doc_id || !args.content) return err("doc_id and content are required.");
-      const existing = db.prepare("SELECT * FROM project_docs WHERE id = ? AND project_hash = ?").get(args.doc_id, ph);
-      if (!existing) return err("Document not found.");
-      db.prepare(
-        "UPDATE project_docs SET content = ?, updated_at = datetime('now'), version = version + 1 WHERE id = ?"
-      ).run(args.content, args.doc_id);
-      const updated = db.prepare("SELECT id, doc_type, title, version, updated_at FROM project_docs WHERE id = ?").get(args.doc_id);
-      return ok(updated);
+      const existingRes = await query(
+        "SELECT * FROM project_docs WHERE id = $1 AND project_hash = $2",
+        [args.doc_id, ph]
+      );
+      if (!existingRes.rows[0]) return err("Document not found.");
+      await query(
+        "UPDATE project_docs SET content = $1, updated_at = NOW(), version = version + 1 WHERE id = $2",
+        [args.content, args.doc_id]
+      );
+      const updatedRes = await query(
+        "SELECT id, doc_type, title, version, updated_at FROM project_docs WHERE id = $1",
+        [args.doc_id]
+      );
+      return ok(updatedRes.rows[0]);
     }
     case "get": {
       if (!args.doc_id) return err("doc_id is required.");
-      const doc = db.prepare(
-        "SELECT * FROM project_docs WHERE id = ? AND project_hash = ?"
-      ).get(args.doc_id, ph);
-      if (!doc) return err("Document not found.");
-      return ok(doc);
+      const docRes = await query(
+        "SELECT * FROM project_docs WHERE id = $1 AND project_hash = $2",
+        [args.doc_id, ph]
+      );
+      if (!docRes.rows[0]) return err("Document not found.");
+      return ok(docRes.rows[0]);
     }
     default:
       return err(`Unknown action: ${action}`);
@@ -1704,20 +1876,18 @@ function handleProjects(args, ph) {
 
 // ── Project Links ────────────────────────────────────────────────────
 
-function handleProjectLink(args, ph) {
-  const db = getDb();
-
+async function handleProjectLink(args, ph) {
   if (!args.target_project_hash || !args.link_type) return err("target_project_hash and link_type are required.");
 
   const id = generateId();
   try {
-    db.prepare(`
+    await query(`
       INSERT INTO project_links (id, source_project_hash, target_project_hash, link_type)
-      VALUES (?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4)
       ON CONFLICT(source_project_hash, target_project_hash) DO UPDATE SET
-        link_type = excluded.link_type,
-        created_at = datetime('now')
-    `).run(id, ph, args.target_project_hash, args.link_type);
+        link_type = EXCLUDED.link_type,
+        created_at = NOW()
+    `, [id, ph, args.target_project_hash, args.link_type]);
 
     return ok({ success: true, source: ph, target: args.target_project_hash, link_type: args.link_type });
   } catch (e) {
@@ -1727,10 +1897,8 @@ function handleProjectLink(args, ph) {
 
 // ── List Projects ────────────────────────────────────────────────────
 
-function handleListProjects(args, ph) {
-  const db = getDb();
-
-  const projects = db.prepare(`
+async function handleListProjects(args, ph) {
+  const projectsRes = await query(`
     SELECT project_hash,
            COUNT(*) as memory_count,
            MIN(created_at) as first_activity,
@@ -1738,24 +1906,27 @@ function handleListProjects(args, ph) {
     FROM memories
     GROUP BY project_hash
     ORDER BY last_activity DESC
-  `).all();
+  `);
 
   // Enrich with entity and task counts
-  const enriched = projects.map(p => {
-    const entityCount = db.prepare(
-      "SELECT COUNT(*) as c FROM entities WHERE project_hash = ? AND is_valid = 1"
-    ).get(p.project_hash)?.c || 0;
+  const enriched = [];
+  for (const p of projectsRes.rows) {
+    const entityCountRes = await query(
+      "SELECT COUNT(*) as c FROM entities WHERE project_hash = $1 AND is_valid = TRUE",
+      [p.project_hash]
+    );
 
-    const taskCount = db.prepare(
-      "SELECT COUNT(*) as c FROM tasks WHERE project_hash = ?"
-    ).get(p.project_hash)?.c || 0;
+    const taskCountRes = await query(
+      "SELECT COUNT(*) as c FROM tasks WHERE project_hash = $1",
+      [p.project_hash]
+    );
 
-    return {
+    enriched.push({
       ...p,
-      entity_count: entityCount,
-      task_count: taskCount,
-    };
-  });
+      entity_count: entityCountRes.rows[0]?.c || 0,
+      task_count: taskCountRes.rows[0]?.c || 0,
+    });
+  }
 
   return ok({ projects: enriched, count: enriched.length });
 }
@@ -1843,49 +2014,52 @@ function qualityGate(content, type, importance) {
 
 // ── Dream Phase (on-startup consolidation) ───────────────────────────
 
-export function runDreamPhase(projectHash) {
-  const db = getDb();
-
+export async function runDreamPhase(projectHash) {
   // 1. Archive stale memories (>90 days, low importance, no access)
-  const archived = db.prepare(`
-    UPDATE memories SET type = 'archived'
-    WHERE project_hash = ? AND type != 'archived'
+  const archivedRes = await query(`
+    UPDATE memories SET is_archived = TRUE
+    WHERE project_hash = $1 AND is_archived = FALSE
       AND importance_score < 0.3
-      AND created_at < datetime('now', '-90 days')
-      AND id NOT IN (SELECT memory_id FROM access_log WHERE accessed_at > datetime('now', '-30 days'))
-  `).run(projectHash);
+      AND created_at < NOW() - INTERVAL '90 days'
+      AND id NOT IN (SELECT memory_id FROM access_log WHERE created_at > NOW() - INTERVAL '30 days')
+  `, [projectHash]);
 
   // 2. Promote high-confidence patterns (candidate → active → promoted)
-  db.prepare(`
-    UPDATE patterns SET lifecycle = 'active'
-    WHERE project_hash = ? AND lifecycle = 'candidate' AND confidence >= 0.6
-  `).run(projectHash);
-  db.prepare(`
-    UPDATE patterns SET lifecycle = 'promoted'
-    WHERE project_hash = ? AND lifecycle = 'active' AND confidence >= 0.85 AND success_count >= 3
-  `).run(projectHash);
+  await query(`
+    UPDATE patterns SET status = 'active'
+    WHERE project_hash = $1 AND status = 'candidate' AND confidence >= 0.6
+  `, [projectHash]);
+  await query(`
+    UPDATE patterns SET status = 'promoted'
+    WHERE project_hash = $1 AND status = 'active' AND confidence >= 0.85 AND success_count >= 3
+  `, [projectHash]);
 
   // 3. Deprecate low-confidence patterns
-  db.prepare(`
-    UPDATE patterns SET lifecycle = 'deprecated'
-    WHERE project_hash = ? AND lifecycle IN ('candidate', 'active') AND confidence < 0.2
-  `).run(projectHash);
+  await query(`
+    UPDATE patterns SET status = 'deprecated'
+    WHERE project_hash = $1 AND status IN ('candidate', 'active') AND confidence < 0.2
+  `, [projectHash]);
 
   // 4. Decay relation weights (older relations become weaker)
-  db.prepare(`
-    UPDATE relations SET weight = MAX(0.1, weight * 0.95)
-    WHERE source_id IN (SELECT id FROM entities WHERE project_hash = ?)
-      AND updated_at < datetime('now', '-30 days')
-  `).run(projectHash);
+  await query(`
+    UPDATE relations SET confidence = GREATEST(0.1, confidence * 0.95)
+    WHERE source_id IN (SELECT id FROM entities WHERE project_hash = $1)
+      AND created_at < NOW() - INTERVAL '30 days'
+  `, [projectHash]);
+
+  const promotedRes = await query(
+    "SELECT COUNT(*) as c FROM patterns WHERE project_hash = $1 AND status = 'promoted'",
+    [projectHash]
+  );
+  const deprecatedRes = await query(
+    "SELECT COUNT(*) as c FROM patterns WHERE project_hash = $1 AND status = 'deprecated'",
+    [projectHash]
+  );
 
   return {
-    archived: archived.changes,
-    patterns_promoted: db.prepare(
-      "SELECT COUNT(*) as c FROM patterns WHERE project_hash = ? AND lifecycle = 'promoted'"
-    ).get(projectHash)?.c || 0,
-    patterns_deprecated: db.prepare(
-      "SELECT COUNT(*) as c FROM patterns WHERE project_hash = ? AND lifecycle = 'deprecated'"
-    ).get(projectHash)?.c || 0,
+    archived: archivedRes.rowCount || 0,
+    patterns_promoted: promotedRes.rows[0]?.c || 0,
+    patterns_deprecated: deprecatedRes.rows[0]?.c || 0,
   };
 }
 
@@ -2054,63 +2228,66 @@ function compressToTokenBudget(data, budget) {
 
 // ── Migration Tool (Local → Cloud) ──────────────────────────────────
 
-function handleExportForMigration(args, ph) {
-  const db = getDb();
+async function handleExportForMigration(args, ph) {
   const limit = args.limit || 1000;
   const offset = args.offset || 0;
 
-  const memories = db.prepare(`
+  const memoriesRes = await query(`
     SELECT id, content, type, importance_score, tags, related_files,
            session_name, created_at, updated_at
     FROM memories
-    WHERE project_hash = ? AND is_archived = 0
+    WHERE project_hash = $1 AND is_archived = FALSE
     ORDER BY created_at DESC
-    LIMIT ? OFFSET ?
-  `).all(ph, limit, offset);
+    LIMIT $2 OFFSET $3
+  `, [ph, limit, offset]);
 
-  const totalCount = db.prepare(
-    "SELECT COUNT(*) as c FROM memories WHERE project_hash = ? AND is_archived = 0"
-  ).get(ph)?.c || 0;
+  const totalCountRes = await query(
+    "SELECT COUNT(*) as c FROM memories WHERE project_hash = $1 AND is_archived = FALSE",
+    [ph]
+  );
+  const totalCount = totalCountRes.rows[0]?.c || 0;
 
-  const entities = db.prepare(`
-    SELECT name, type FROM entities WHERE project_hash = ? AND is_valid = 1
-  `).all(ph);
+  const entitiesRes = await query(`
+    SELECT name, type FROM entities WHERE project_hash = $1 AND is_valid = TRUE
+  `, [ph]);
 
-  const relations = db.prepare(`
+  const relationsRes = await query(`
     SELECT s.name as source, t.name as target, r.relation_type, r.weight
     FROM relations r
     JOIN entities s ON r.source_id = s.id
     JOIN entities t ON r.target_id = t.id
-    WHERE s.project_hash = ?
-  `).all(ph);
+    WHERE s.project_hash = $1
+  `, [ph]);
 
-  const tasks = db.prepare(
-    "SELECT title, description, status, priority, created_at FROM tasks WHERE project_hash = ?"
-  ).all(ph);
+  const tasksRes = await query(
+    "SELECT title, description, status, priority, created_at FROM tasks WHERE project_hash = $1",
+    [ph]
+  );
 
-  const rules = db.prepare(
-    "SELECT content, category, severity FROM rules WHERE project_hash = ? AND is_active = 1"
-  ).all(ph);
+  const rulesRes = await query(
+    "SELECT content, category, severity FROM rules WHERE project_hash = $1 AND is_active = TRUE",
+    [ph]
+  );
 
   return ok({
     format: "memaxx-export-v1",
     project_hash: ph,
     exported_at: new Date().toISOString(),
     total_memories: totalCount,
-    batch: { offset, limit, count: memories.length },
-    memories: memories.map(m => ({
+    batch: { offset, limit, count: memoriesRes.rows.length },
+    memories: memoriesRes.rows.map(m => ({
       ...m,
-      tags: safeParseJson(m.tags, []),
-      related_files: safeParseJson(m.related_files, []),
+      tags: safeParseJsonb(m.tags, []),
+      related_files: safeParseJsonb(m.related_files, []),
     })),
-    entities,
-    relations,
-    tasks,
-    rules,
+    entities: entitiesRes.rows,
+    relations: relationsRes.rows,
+    tasks: tasksRes.rows,
+    rules: rulesRes.rows,
     migration_instructions: {
       cloud_import: "POST each memory to the MEMAXX Cloud API at /api/v1/memory/import with your Bearer token.",
       batch_size: "Import in batches of 50 to avoid rate limits.",
-      next_offset: offset + memories.length < totalCount ? offset + limit : null,
+      next_offset: offset + memoriesRes.rows.length < totalCount ? offset + limit : null,
     },
   });
 }
@@ -2127,4 +2304,11 @@ function err(message) {
 
 function safeParseJson(str, fallback) {
   try { return JSON.parse(str); } catch { return fallback; }
+}
+
+/** Parse JSONB — PostgreSQL returns objects directly, but handle string fallback */
+function safeParseJsonb(val, fallback) {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === "object") return val; // Already parsed by pg driver
+  try { return JSON.parse(val); } catch { return fallback; }
 }

@@ -34,8 +34,8 @@ import { join, dirname, parse } from "node:path";
 import { createInterface } from "node:readline";
 import { randomBytes } from "node:crypto";
 
-import { readConfig, configExists, getDbPath, getConfigDir, getEmbeddingDimension, getDefaultModel, getProviderUrl } from "./src/config.mjs";
-import { openDatabase, closeDatabase } from "./src/db.mjs";
+import { readConfig, configExists, getConfigDir, getEmbeddingDimension, getDefaultModel, getProviderUrl } from "./src/config.mjs";
+import { initDatabase, closeDatabase } from "./src/db.mjs";
 import { TOOL_DEFINITIONS, handleToolCall, setConfigs, setProjectId, setProjectManifest } from "./src/tools.mjs";
 
 // ── Configuration ───────────────────────────────────────────────────
@@ -63,13 +63,9 @@ function buildConfigFromEnv() {
 
   const model = process.env.EMBEDDING_MODEL || getDefaultModel(provider);
   const dimension = getEmbeddingDimension(provider, model);
-  const dataDir = process.env.DATA_DIR || join(homedir(), ".memaxx");
-
-  // Ensure data directory exists
-  mkdirSync(dataDir, { recursive: true });
 
   const config = {
-    version: 1,
+    version: 2,
     embedding: {
       provider,
       api_key: process.env.EMBEDDING_API_KEY || null,
@@ -77,7 +73,7 @@ function buildConfigFromEnv() {
       model,
       dimension,
     },
-    db_path: join(dataDir, "memories.db"),
+    database_url: process.env.DATABASE_URL || "postgresql://memaxx:memaxx@localhost:5432/memaxx",
     created_at: new Date().toISOString(),
   };
 
@@ -108,20 +104,8 @@ if (command === "setup" || flags.has("--setup") || flags.has("--reconfigure")) {
 // ── Backup Command ──────────────────────────────────────────────────
 
 if (command === "backup" || flags.has("--backup")) {
-  const config = readConfig() || buildConfigFromEnv();
-  if (!config) {
-    console.error("\n  No config found. Set environment variables or run: node bin.mjs --setup\n");
-    process.exit(1);
-  }
-  const dbPath = config.db_path || getDbPath();
-  const backupPath = `${dbPath}.backup-${Date.now()}`;
-  try {
-    copyFileSync(dbPath, backupPath);
-    log(`Backup created: ${backupPath}`);
-  } catch (err) {
-    log(`Backup failed: ${err.message}`);
-    process.exit(1);
-  }
+  log("Backup: Use pg_dump for PostgreSQL backups.");
+  log("  docker compose exec postgres pg_dump -U memaxx memaxx > backup.sql");
   process.exit(0);
 }
 
@@ -219,12 +203,12 @@ let dbReady = false;
 
 if (config) {
   try {
-    openDatabase(config.db_path || getDbPath(), config.embedding.dimension);
+    await initDatabase(config.database_url, config.embedding.dimension);
     setConfigs(config.embedding, config.llm);
     dbReady = true;
-    log(`Database opened: ${config.db_path || getDbPath()}`);
+    log(`Database connected: ${config.database_url.replace(/:[^:@]+@/, ':***@')}`);
   } catch (err) {
-    log(`Failed to open database: ${err.message}`);
+    log(`Failed to connect to database: ${err.message}`);
   }
 }
 
@@ -462,9 +446,9 @@ function startStdioTransport() {
   let pendingRequests = 0;
   let stdinClosed = false;
 
-  function maybeExit() {
+  async function maybeExit() {
     if (stdinClosed && pendingRequests === 0) {
-      closeDatabase();
+      await closeDatabase();
       process.exit(0);
     }
   }
@@ -503,7 +487,7 @@ function startStdioTransport() {
     maybeExit();
   });
 
-  log(`Started v${SERVER_VERSION} — stdio mode | db: ${config?.db_path || "not configured"}`);
+  log(`Started v${SERVER_VERSION} — stdio mode | db: ${config?.database_url ? "connected" : "not configured"}`);
 }
 
 // ── HTTP Server ─────────────────────────────────────────────────────
@@ -857,7 +841,7 @@ async function startHttpServer() {
     log(`Dashboard:     http://${host}:${port}/`);
     log(`Health check:  http://${host}:${port}/health`);
     if (authToken) log(`Auth:          enabled (Bearer token)`);
-    log(`Database:      ${dbReady ? (config?.db_path || getDbPath()) : "not configured"}`);
+    log(`Database:      ${dbReady ? "PostgreSQL connected" : "not configured"}`);
   });
 
   server.on("error", (err) => {
@@ -877,5 +861,5 @@ function log(msg) {
 
 // ── Graceful Shutdown ───────────────────────────────────────────────
 
-process.on("SIGINT", () => { closeDatabase(); process.exit(0); });
-process.on("SIGTERM", () => { closeDatabase(); process.exit(0); });
+process.on("SIGINT", async () => { await closeDatabase(); process.exit(0); });
+process.on("SIGTERM", async () => { await closeDatabase(); process.exit(0); });

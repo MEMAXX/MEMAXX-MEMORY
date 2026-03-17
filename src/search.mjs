@@ -1,10 +1,10 @@
 /**
- * Hybrid search engine for MEMAXX Memory Local.
- * Combines: semantic (sqlite-vec) + full-text (FTS5) + tag matching + time-decay.
+ * Hybrid search engine for MEMAXX Memory.
+ * Combines: semantic (pgvector) + full-text (tsvector) + tag matching + time-decay.
  */
 
-import { getDb, generateId } from "./db.mjs";
-import { generateEmbedding, cosineSimilarity } from "./embeddings.mjs";
+import { query } from "./db.mjs";
+import { generateEmbedding } from "./embeddings.mjs";
 
 // Search weights (aligned with cloud version)
 const WEIGHTS = {
@@ -12,6 +12,15 @@ const WEIGHTS = {
   fulltext: { semantic: 0, fts: 0.60, tags: 0, freshness: 0.40, graph: 0 },
   keyword: { semantic: 0, fts: 0.40, tags: 0.40, freshness: 0.20, graph: 0 },
 };
+
+/**
+ * Convert a Float32Array (or regular array) to pgvector string format.
+ * @param {Float32Array|number[]} floatArray
+ * @returns {string} e.g. '[0.1,0.2,0.3]'
+ */
+export function formatEmbedding(floatArray) {
+  return "[" + Array.from(floatArray).join(",") + "]";
+}
 
 /**
  * Hybrid search across memories.
@@ -24,11 +33,11 @@ const WEIGHTS = {
  * @param {number} [params.limit=10]
  * @param {boolean} [params.recentOnly=false]
  * @param {object} embeddingConfig
- * @returns {Promise<{ results: object[], count: number }>}
+ * @returns {Promise<{ results: object[], count: number, search_mode: string }>}
  */
 export async function searchMemories(params, embeddingConfig) {
   const {
-    query,
+    query: searchQuery,
     projectHash,
     searchMode = "hybrid",
     memoryType,
@@ -37,7 +46,6 @@ export async function searchMemories(params, embeddingConfig) {
     recentOnly = false,
   } = params;
 
-  const db = getDb();
   const weights = WEIGHTS[searchMode] || WEIGHTS.hybrid;
 
   // 1. Get candidate memories
@@ -45,86 +53,74 @@ export async function searchMemories(params, embeddingConfig) {
     SELECT id, content, type, importance_score, tags, related_files,
            session_name, retrieval_count, is_archived, created_at, updated_at
     FROM memories
-    WHERE project_hash = ? AND is_archived = 0
+    WHERE project_hash = $1 AND is_archived = FALSE
   `;
   const sqlParams = [projectHash];
+  let paramIndex = 2;
 
   if (memoryType) {
-    sql += " AND type = ?";
+    sql += ` AND type = $${paramIndex}`;
     sqlParams.push(memoryType);
+    paramIndex++;
   }
 
   if (filePath) {
-    sql += " AND related_files LIKE ?";
+    sql += ` AND related_files::text LIKE $${paramIndex}`;
     sqlParams.push(`%${filePath}%`);
+    paramIndex++;
   }
 
   if (recentOnly) {
-    sql += " AND created_at >= datetime('now', '-30 days')";
+    sql += " AND created_at >= NOW() - INTERVAL '30 days'";
   }
 
-  sql += " ORDER BY created_at DESC LIMIT 200"; // candidate pool
+  sql += " ORDER BY created_at DESC LIMIT 200";
 
-  const candidates = db.prepare(sql).all(...sqlParams);
-  if (candidates.length === 0) return { results: [], count: 0 };
+  const { rows: candidates } = await query(sql, sqlParams);
+  if (candidates.length === 0) return { results: [], count: 0, search_mode: searchMode };
 
   // 2. Score each candidate
   const queryEmbedding = weights.semantic > 0
-    ? await generateEmbedding(query, embeddingConfig)
+    ? await generateEmbedding(searchQuery, embeddingConfig)
     : null;
 
   // Pre-fetch FTS matches
-  const ftsMatches = new Set();
   const ftsScores = new Map();
-  if (weights.fts > 0 && query.trim()) {
+  if (weights.fts > 0 && searchQuery.trim()) {
     try {
-      // FTS5 query — escape special chars
-      const ftsQuery = query.replace(/['"(){}[\]^~*:]/g, " ").trim();
-      if (ftsQuery) {
-        const ftsResults = db.prepare(`
-          SELECT rowid, rank FROM memories_fts
-          WHERE memories_fts MATCH ?
-          ORDER BY rank
-          LIMIT 100
-        `).all(ftsQuery);
+      const { rows: ftsResults } = await query(`
+        SELECT id, ts_rank(search_vector, plainto_tsquery('english', $1)) as rank
+        FROM memories
+        WHERE project_hash = $2 AND search_vector @@ plainto_tsquery('english', $1)
+        ORDER BY rank DESC
+        LIMIT 100
+      `, [searchQuery, projectHash]);
 
-        // Map rowid → memory id
-        const rowids = ftsResults.map(r => r.rowid);
-        if (rowids.length > 0) {
-          const placeholders = rowids.map(() => "?").join(",");
-          const rows = db.prepare(
-            `SELECT id, rowid FROM memories WHERE rowid IN (${placeholders})`
-          ).all(...rowids);
-
-          const rowidToId = new Map(rows.map(r => [r.rowid, r.id]));
-          const maxRank = Math.max(...ftsResults.map(r => Math.abs(r.rank)), 1);
-
-          for (const r of ftsResults) {
-            const id = rowidToId.get(r.rowid);
-            if (id) {
-              ftsMatches.add(id);
-              ftsScores.set(id, Math.abs(r.rank) / maxRank);
-            }
-          }
+      if (ftsResults.length > 0) {
+        const maxRank = Math.max(...ftsResults.map(r => r.rank), 1);
+        for (const r of ftsResults) {
+          ftsScores.set(r.id, r.rank / maxRank);
         }
       }
-    } catch { /* FTS query syntax error — skip */ }
+    } catch { /* FTS query error — skip */ }
   }
 
-  // Pre-fetch semantic similarities from vec table
+  // Pre-fetch semantic similarities via pgvector
   const vecScores = new Map();
   if (queryEmbedding && weights.semantic > 0) {
     try {
-      const vecResults = db.prepare(`
-        SELECT id, distance FROM memories_vec
-        WHERE embedding MATCH ?
-        AND k = ?
-      `).all(queryEmbedding.buffer, Math.min(50, candidates.length));
+      const embeddingStr = formatEmbedding(queryEmbedding);
+      const vecLimit = Math.min(50, candidates.length);
+      const { rows: vecResults } = await query(`
+        SELECT id, 1 - (embedding <=> $1::vector) as similarity
+        FROM memories
+        WHERE project_hash = $2 AND embedding IS NOT NULL
+        ORDER BY embedding <=> $1::vector
+        LIMIT $3
+      `, [embeddingStr, projectHash, vecLimit]);
 
       for (const r of vecResults) {
-        // sqlite-vec returns L2 distance; convert to similarity
-        // similarity = 1 / (1 + distance)
-        vecScores.set(r.id, 1 / (1 + r.distance));
+        vecScores.set(r.id, r.similarity);
       }
     } catch { /* vec query error — skip */ }
   }
@@ -133,19 +129,18 @@ export async function searchMemories(params, embeddingConfig) {
   const graphScores = new Map();
   if (weights.graph > 0) {
     try {
-      // Find entities mentioned in query
-      const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const queryWords = searchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 2);
       if (queryWords.length > 0) {
-        const likeClauses = queryWords.map(() => "LOWER(e.name) LIKE ?").join(" OR ");
+        const likeClauses = queryWords.map((_, i) => `LOWER(e.name) LIKE $${i + 1}`).join(" OR ");
         const likeParams = queryWords.map(w => `%${w}%`);
 
-        const entityMemories = db.prepare(`
+        const { rows: entityMemories } = await query(`
           SELECT DISTINCT em.memory_id, COUNT(*) as match_count
           FROM entity_mentions em
           JOIN entities e ON em.entity_id = e.id
-          WHERE (${likeClauses}) AND e.is_valid = 1
+          WHERE (${likeClauses}) AND e.is_valid = TRUE
           GROUP BY em.memory_id
-        `).all(...likeParams);
+        `, likeParams);
 
         const maxMatch = Math.max(...entityMemories.map(r => r.match_count), 1);
         for (const r of entityMemories) {
@@ -165,8 +160,8 @@ export async function searchMemories(params, embeddingConfig) {
     let tagScore = 0;
     if (weights.tags > 0) {
       try {
-        const memTags = JSON.parse(mem.tags || "[]");
-        const queryLower = query.toLowerCase();
+        const memTags = Array.isArray(mem.tags) ? mem.tags : JSON.parse(mem.tags || "[]");
+        const queryLower = searchQuery.toLowerCase();
         const matched = memTags.filter(t => queryLower.includes(t.toLowerCase()));
         tagScore = memTags.length > 0 ? matched.length / memTags.length : 0;
       } catch { /* */ }
@@ -196,8 +191,8 @@ export async function searchMemories(params, embeddingConfig) {
 
     return {
       ...mem,
-      tags: safeParseJson(mem.tags, []),
-      related_files: safeParseJson(mem.related_files, []),
+      tags: Array.isArray(mem.tags) ? mem.tags : safeParseJson(mem.tags, []),
+      related_files: Array.isArray(mem.related_files) ? mem.related_files : safeParseJson(mem.related_files, []),
       semantic_score: semantic,
       fts_score: fts,
       tag_score: tagScore,
@@ -213,16 +208,16 @@ export async function searchMemories(params, embeddingConfig) {
   const results = scored.slice(0, limit);
 
   // 5. Log access for predictive memory
-  const logAccess = db.prepare(
-    "INSERT INTO access_log (memory_id, tool_name) VALUES (?, 'memory_search')"
-  );
-  const updateRetrieval = db.prepare(
-    "UPDATE memories SET retrieval_count = retrieval_count + 1 WHERE id = ?"
-  );
   for (const r of results) {
     try {
-      logAccess.run(r.id);
-      updateRetrieval.run(r.id);
+      await query(
+        "INSERT INTO access_log (memory_id, tool_name) VALUES ($1, 'memory_search')",
+        [r.id]
+      );
+      await query(
+        "UPDATE memories SET retrieval_count = retrieval_count + 1 WHERE id = $1",
+        [r.id]
+      );
     } catch { /* */ }
   }
 
@@ -235,23 +230,27 @@ export async function searchMemories(params, embeddingConfig) {
 
 /**
  * Get predictive memories — recently and frequently accessed memories.
+ * @param {string} projectHash
+ * @param {number} [limit=5]
+ * @returns {Promise<object[]>}
  */
-export function getPredictiveMemories(projectHash, limit = 5) {
-  const db = getDb();
+export async function getPredictiveMemories(projectHash, limit = 5) {
   try {
-    return db.prepare(`
+    const { rows } = await query(`
       SELECT m.*, COUNT(a.id) as access_count
       FROM memories m
       JOIN access_log a ON m.id = a.memory_id
-      WHERE m.project_hash = ? AND m.is_archived = 0
-        AND a.created_at >= datetime('now', '-7 days')
+      WHERE m.project_hash = $1 AND m.is_archived = FALSE
+        AND a.created_at >= NOW() - INTERVAL '7 days'
       GROUP BY m.id
       ORDER BY access_count DESC, m.importance_score DESC
-      LIMIT ?
-    `).all(projectHash, limit).map(r => ({
+      LIMIT $2
+    `, [projectHash, limit]);
+
+    return rows.map(r => ({
       ...r,
-      tags: safeParseJson(r.tags, []),
-      related_files: safeParseJson(r.related_files, []),
+      tags: Array.isArray(r.tags) ? r.tags : safeParseJson(r.tags, []),
+      related_files: Array.isArray(r.related_files) ? r.related_files : safeParseJson(r.related_files, []),
     }));
   } catch {
     return [];
@@ -260,19 +259,24 @@ export function getPredictiveMemories(projectHash, limit = 5) {
 
 /**
  * Get recent activity for session recap.
+ * @param {string} projectHash
+ * @param {number} [daysBack=7]
+ * @param {number} [limit=20]
+ * @returns {Promise<object[]>}
  */
-export function getRecentActivity(projectHash, daysBack = 7, limit = 20) {
-  const db = getDb();
-  return db.prepare(`
+export async function getRecentActivity(projectHash, daysBack = 7, limit = 20) {
+  const { rows } = await query(`
     SELECT * FROM memories
-    WHERE project_hash = ? AND is_archived = 0
-      AND created_at >= datetime('now', '-' || ? || ' days')
+    WHERE project_hash = $1 AND is_archived = FALSE
+      AND created_at >= NOW() - ($2 || ' days')::INTERVAL
     ORDER BY created_at DESC
-    LIMIT ?
-  `).all(projectHash, daysBack, limit).map(r => ({
+    LIMIT $3
+  `, [projectHash, daysBack, limit]);
+
+  return rows.map(r => ({
     ...r,
-    tags: safeParseJson(r.tags, []),
-    related_files: safeParseJson(r.related_files, []),
+    tags: Array.isArray(r.tags) ? r.tags : safeParseJson(r.tags, []),
+    related_files: Array.isArray(r.related_files) ? r.related_files : safeParseJson(r.related_files, []),
   }));
 }
 
