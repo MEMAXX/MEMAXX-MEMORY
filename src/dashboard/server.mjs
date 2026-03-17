@@ -80,28 +80,28 @@ function buildRoutes(embeddingConfig, onboarding = false) {
     }],
 
     // API routes
-    ["GET", "/api/stats", wrapSync(getStats)],
-    ["GET", "/api/memories", wrapSync(getMemories)],
-    ["GET", "/api/memories/:id", wrapSync(getMemory)],
-    ["GET", "/api/graph", wrapSync(getGraph)],
-    ["GET", "/api/graph/explore/:name", wrapSync(getGraphExplore)],
-    ["GET", "/api/graph/stats", wrapSync(getGraphStats)],
-    ["GET", "/api/tasks", wrapSync(getTasks)],
-    ["POST", "/api/tasks", wrapSync(createTask)],
-    ["PATCH", "/api/tasks/:id", wrapSync(updateTask)],
-    ["DELETE", "/api/tasks/:id", wrapSync(deleteTask)],
-    ["GET", "/api/postmortems", wrapSync(getPostmortems)],
-    ["GET", "/api/thinking", wrapSync(getThinkingSequences)],
-    ["GET", "/api/thinking/:id", wrapSync(getThinkingSequence)],
-    ["GET", "/api/rules", wrapSync(getRules)],
+    ["GET", "/api/stats", wrapAsync(getStats)],
+    ["GET", "/api/memories", wrapAsync(getMemories)],
+    ["GET", "/api/memories/:id", wrapAsync(getMemory)],
+    ["GET", "/api/graph", wrapAsync(getGraph)],
+    ["GET", "/api/graph/explore/:name", wrapAsync(getGraphExplore)],
+    ["GET", "/api/graph/stats", wrapAsync(getGraphStats)],
+    ["GET", "/api/tasks", wrapAsync(getTasks)],
+    ["POST", "/api/tasks", wrapAsync(createTask)],
+    ["PATCH", "/api/tasks/:id", wrapAsync(updateTask)],
+    ["DELETE", "/api/tasks/:id", wrapAsync(deleteTask)],
+    ["GET", "/api/postmortems", wrapAsync(getPostmortems)],
+    ["GET", "/api/thinking", wrapAsync(getThinkingSequences)],
+    ["GET", "/api/thinking/:id", wrapAsync(getThinkingSequence)],
+    ["GET", "/api/rules", wrapAsync(getRules)],
     ["GET", "/api/config", wrapNoProject(getConfig)],
     ["GET", "/api/search", wrapAsync((params, query, body, ph) => searchMemoriesHandler(params, query, body, ph, embeddingConfig))],
-    ["GET", "/api/insights", wrapSync(getInsights)],
-    ["GET", "/api/projects", wrapNoProject(getProjects)],
+    ["GET", "/api/insights", wrapAsync(getInsights)],
+    ["GET", "/api/projects", wrapAsyncNoProject(getProjects)],
     ["POST", "/api/backup", wrapNoProject(createBackup)],
-    ["GET", "/api/export", wrapSync(exportMemories)],
-    ["POST", "/api/import", wrapSync(importMemories)],
-    ["GET", "/api/memories/:id/detail", wrapSync(getMemoryDetail)],
+    ["GET", "/api/export", wrapAsync(exportMemories)],
+    ["POST", "/api/import", wrapAsync(importMemories)],
+    ["GET", "/api/memories/:id/detail", wrapAsync(getMemoryDetail)],
   ];
 
   return defs.map(([method, pattern, handler]) => {
@@ -146,11 +146,28 @@ function wrapAsync(fn) {
   };
 }
 
-/** Wrap handlers that don't need projectHash */
+/** Wrap sync handlers that don't need projectHash */
 function wrapNoProject(fn) {
   return (req, res, params, query, body, _projectHash) => {
     try {
       const result = fn(params, query, body);
+      if (result && result.status && result.error) {
+        sendJson(res, result.status, { error: result.error });
+      } else {
+        sendJson(res, 200, result);
+      }
+    } catch (err) {
+      log(`Error in ${req.url}: ${err.message}`);
+      sendJson(res, 500, { error: "Internal server error", detail: err.message });
+    }
+  };
+}
+
+/** Wrap async handlers that don't need projectHash */
+function wrapAsyncNoProject(fn) {
+  return async (req, res, params, query, body, _projectHash) => {
+    try {
+      const result = await fn(params, query, body);
       if (result && result.status && result.error) {
         sendJson(res, result.status, { error: result.error });
       } else {
