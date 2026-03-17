@@ -1,0 +1,45 @@
+{
+  "name": "memaxx-memory-local",
+  "version": "2.0.0",
+  "description": "MEMAXX Memory — Self-hosted persistent memory for AI coding tools. SQLite-based, runs locally.",
+  "type": "module",
+  "bin": {
+    "memaxx-memory-local": "dist/memaxx-memory-local.mjs"
+  },
+  "files": [
+    "dist/memaxx-memory-local.mjs",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node bin.mjs",
+    "dev": "node --watch bin.mjs",
+    "dashboard": "node bin.mjs --dashboard"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "sqlite-vec": "^0.1.0"
+  },
+  "keywords": [
+    "mcp",
+    "memory",
+    "ai",
+    "cursor",
+    "claude",
+    "model-context-protocol",
+    "memaxx",
+    "self-hosted",
+    "local",
+    "sqlite",
+    "ollama"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.4",
+    "javascript-obfuscator": "^5.3.0"
+  }
+}

@@ -1,0 +1,8 @@
+src/
+build.mjs
+*.db
+*.db-wal
+*.db-shm
+.memaxx/
+.git/
+node_modules/
