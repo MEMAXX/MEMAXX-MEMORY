@@ -400,6 +400,16 @@ function getMigrations(dim) {
         CREATE INDEX IF NOT EXISTS idx_project_links_target ON project_links(target_project_hash);
       `,
     },
+    {
+      name: "016_system_config",
+      sql: `
+        CREATE TABLE IF NOT EXISTS system_config (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        );
+      `,
+    },
   ];
 }
 

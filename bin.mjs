@@ -200,16 +200,36 @@ if (!config) {
 // ── Database Initialization ─────────────────────────────────────────
 
 let dbReady = false;
+const dbUrl = config?.database_url || process.env.DATABASE_URL;
 
-if (config) {
+if (dbUrl) {
   try {
-    await initDatabase(config.database_url, config.embedding.dimension);
-    setConfigs(config.embedding, config.llm);
+    const dim = config?.embedding?.dimension || 1536;
+    await initDatabase(dbUrl, dim);
     dbReady = true;
-    log(`Database connected: ${config.database_url.replace(/:[^:@]+@/, ':***@')}`);
+    log(`Database connected: ${dbUrl.replace(/:[^:@]+@/, ':***@')}`);
+
+    // If no embedding config from env, try loading from database
+    if (config?.embedding?.provider) {
+      setConfigs(config.embedding, config.llm);
+      log(`Embedding provider: ${config.embedding.provider} (from env)`);
+    } else {
+      try {
+        const { loadProviderConfigFromDb } = await import("./src/dashboard/api.mjs");
+        const dbConfig = await loadProviderConfigFromDb();
+        if (dbConfig?.embedding?.provider) {
+          setConfigs(dbConfig.embedding, dbConfig.llm);
+          log(`Embedding provider: ${dbConfig.embedding.provider} (from database)`);
+        } else {
+          log("No embedding provider configured. Configure via dashboard at /");
+        }
+      } catch { /* dashboard module may not be available */ }
+    }
   } catch (err) {
     log(`Failed to connect to database: ${err.message}`);
   }
+} else if (config) {
+  log("No DATABASE_URL configured.");
 }
 
 // ── Project Identification ──────────────────────────────────────────
@@ -647,29 +667,41 @@ async function startHttpServer() {
       } catch (err) { sendJson(res, 500, { error: err.message }); }
     };
 
+    const wrapAsyncNoProject = (fn) => async (req, res, params, query, body) => {
+      try {
+        const result = await fn(params, query, body);
+        if (result?.status && result?.error) sendJson(res, result.status, { error: result.error });
+        else sendJson(res, 200, result);
+      } catch (err) { sendJson(res, 500, { error: err.message }); }
+    };
+
     const defs = [
-      ["GET", "/api/stats", wrapSync(dashApi.getStats)],
-      ["GET", "/api/memories", wrapSync(dashApi.getMemories)],
-      ["GET", "/api/memories/:id", wrapSync(dashApi.getMemory)],
-      ["GET", "/api/memories/:id/detail", wrapSync(dashApi.getMemoryDetail)],
-      ["GET", "/api/graph", wrapSync(dashApi.getGraph)],
-      ["GET", "/api/graph/explore/:name", wrapSync(dashApi.getGraphExplore)],
-      ["GET", "/api/graph/stats", wrapSync(dashApi.getGraphStats)],
-      ["GET", "/api/tasks", wrapSync(dashApi.getTasks)],
-      ["POST", "/api/tasks", wrapSync(dashApi.createTask)],
-      ["PATCH", "/api/tasks/:id", wrapSync(dashApi.updateTask)],
-      ["DELETE", "/api/tasks/:id", wrapSync(dashApi.deleteTask)],
-      ["GET", "/api/postmortems", wrapSync(dashApi.getPostmortems)],
-      ["GET", "/api/thinking", wrapSync(dashApi.getThinkingSequences)],
-      ["GET", "/api/thinking/:id", wrapSync(dashApi.getThinkingSequence)],
-      ["GET", "/api/rules", wrapSync(dashApi.getRules)],
+      ["GET", "/api/stats", wrapAsync(dashApi.getStats)],
+      ["GET", "/api/memories", wrapAsync(dashApi.getMemories)],
+      ["GET", "/api/memories/:id", wrapAsync(dashApi.getMemory)],
+      ["GET", "/api/memories/:id/detail", wrapAsync(dashApi.getMemoryDetail)],
+      ["GET", "/api/graph", wrapAsync(dashApi.getGraph)],
+      ["GET", "/api/graph/explore/:name", wrapAsync(dashApi.getGraphExplore)],
+      ["GET", "/api/graph/stats", wrapAsync(dashApi.getGraphStats)],
+      ["GET", "/api/tasks", wrapAsync(dashApi.getTasks)],
+      ["POST", "/api/tasks", wrapAsync(dashApi.createTask)],
+      ["PATCH", "/api/tasks/:id", wrapAsync(dashApi.updateTask)],
+      ["DELETE", "/api/tasks/:id", wrapAsync(dashApi.deleteTask)],
+      ["GET", "/api/postmortems", wrapAsync(dashApi.getPostmortems)],
+      ["GET", "/api/thinking", wrapAsync(dashApi.getThinkingSequences)],
+      ["GET", "/api/thinking/:id", wrapAsync(dashApi.getThinkingSequence)],
+      ["GET", "/api/rules", wrapAsync(dashApi.getRules)],
       ["GET", "/api/config", wrapNoProject(dashApi.getConfig)],
       ["GET", "/api/search", wrapAsync((p, q, b, ph) => dashApi.searchMemoriesHandler(p, q, b, ph, embeddingConfig))],
-      ["GET", "/api/insights", wrapSync(dashApi.getInsights)],
-      ["GET", "/api/projects", wrapNoProject(dashApi.getProjects)],
+      ["GET", "/api/insights", wrapAsync(dashApi.getInsights)],
+      ["GET", "/api/projects", wrapAsyncNoProject(dashApi.getProjects)],
       ["POST", "/api/backup", wrapNoProject(dashApi.createBackup)],
-      ["GET", "/api/export", wrapSync(dashApi.exportMemories)],
-      ["POST", "/api/import", wrapSync(dashApi.importMemories)],
+      ["GET", "/api/export", wrapAsync(dashApi.exportMemories)],
+      ["POST", "/api/import", wrapAsync(dashApi.importMemories)],
+      // Provider config (setup wizard)
+      ["GET", "/api/provider", wrapAsyncNoProject(dashApi.getProviderConfig)],
+      ["POST", "/api/provider", wrapAsyncNoProject(dashApi.saveProviderConfig)],
+      ["POST", "/api/provider/test", wrapAsyncNoProject(dashApi.testProviderConnection)],
     ];
 
     return defs.map(([method, pattern, handler]) => {

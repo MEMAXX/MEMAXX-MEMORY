@@ -31,6 +31,9 @@ import {
   exportMemories,
   importMemories,
   getMemoryDetail,
+  getProviderConfig,
+  saveProviderConfig,
+  testProviderConnection,
 } from "./api.mjs";
 
 // ── Allowed Host headers (DNS rebinding protection) ──────────────────
@@ -102,6 +105,10 @@ function buildRoutes(embeddingConfig, onboarding = false) {
     ["GET", "/api/export", wrapAsync(exportMemories)],
     ["POST", "/api/import", wrapAsync(importMemories)],
     ["GET", "/api/memories/:id/detail", wrapAsync(getMemoryDetail)],
+    // Provider config (setup wizard)
+    ["GET", "/api/provider", wrapAsyncNoProject(getProviderConfig)],
+    ["POST", "/api/provider", wrapAsyncNoProject(saveProviderConfig)],
+    ["POST", "/api/provider/test", wrapAsyncNoProject(testProviderConnection)],
   ];
 
   return defs.map(([method, pattern, handler]) => {

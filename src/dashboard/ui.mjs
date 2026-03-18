@@ -1945,77 +1945,162 @@ async function renderRules(el) {
 
 async function renderSettings(el) {
   try {
-    const data = await api('/api/config');
+    const [configData, providerData] = await Promise.all([
+      api('/api/config').catch(() => ({})),
+      api('/api/provider').catch(() => ({})),
+    ]);
+
+    const provider = providerData.embedding_provider || providerData._env_embedding_provider || '';
+    const source = providerData._source || 'environment';
+    const hasKey = !!providerData.embedding_api_key || providerData._env_has_key;
 
     el.innerHTML = \`
       <div class="page-header">
         <h1 class="page-title">Settings</h1>
-        <p class="page-desc">Local memory configuration</p>
+        <p class="page-desc">Configure your embedding provider and manage your memory server</p>
       </div>
 
       <div class="card" style="margin-bottom:16px">
         <div class="card-title">Embedding Provider</div>
-        <div class="settings-row">
-          <span class="settings-label">Provider</span>
-          <span class="settings-value">\${esc(data.embedding?.provider || 'Not configured')}</span>
+        <div class="text-xs text-muted" style="margin-bottom:16px">
+          \${source === 'database' ? 'Configured via dashboard' : hasKey ? 'Configured via environment variables' : 'Not configured — set up below'}
         </div>
-        <div class="settings-row">
-          <span class="settings-label">Model</span>
-          <span class="settings-value">\${esc(data.embedding?.model || '-')}</span>
-        </div>
-        <div class="settings-row">
-          <span class="settings-label">Dimension</span>
-          <span class="settings-value">\${data.embedding?.dimension || '-'}</span>
-        </div>
-        <div class="settings-row">
-          <span class="settings-label">API Key</span>
-          <span class="settings-value">\${esc(data.embedding?.api_key || 'Not set')}</span>
-        </div>
+        <form id="provider-form" style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Provider</label>
+              <select id="cfg-provider" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px">
+                <option value="openai" \${provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+                <option value="openrouter" \${provider === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
+                <option value="ollama" \${provider === 'ollama' ? 'selected' : ''}>Ollama (local)</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Model</label>
+              <input id="cfg-model" type="text" placeholder="text-embedding-3-small" value="\${esc(providerData.embedding_model || '')}" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px;box-sizing:border-box" />
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">API Key</label>
+            <input id="cfg-key" type="password" placeholder="\${hasKey ? '••• key configured •••' : 'sk-...'}" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px;box-sizing:border-box" />
+          </div>
+          <div id="cfg-ollama-url" style="display:\${provider === 'ollama' ? 'block' : 'none'}">
+            <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Ollama URL</label>
+            <input id="cfg-base-url" type="text" placeholder="http://localhost:11434" value="\${esc(providerData.embedding_base_url || '')}" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px;box-sizing:border-box" />
+          </div>
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button type="button" id="test-provider-btn" class="btn btn-secondary" style="flex:1">Test Connection</button>
+            <button type="submit" class="btn btn-primary" style="flex:1">Save</button>
+          </div>
+          <div id="provider-status" style="font-size:12px;min-height:20px;text-align:center"></div>
+        </form>
       </div>
 
-      \${data.llm ? \`
-        <div class="card" style="margin-bottom:16px">
-          <div class="card-title">LLM (Entity Extraction)</div>
-          <div class="settings-row">
-            <span class="settings-label">Provider</span>
-            <span class="settings-value">\${esc(data.llm.provider || '-')}</span>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">LLM (Entity Extraction)</div>
+        <div class="text-xs text-muted" style="margin-bottom:12px">Optional — extracts entities and relations for the knowledge graph</div>
+        <form id="llm-form" style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">LLM Provider</label>
+              <select id="llm-provider" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px">
+                <option value="">None</option>
+                <option value="openai" \${providerData.llm_provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+                <option value="openrouter" \${providerData.llm_provider === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
+                <option value="ollama" \${providerData.llm_provider === 'ollama' ? 'selected' : ''}>Ollama</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">LLM Model</label>
+              <input id="llm-model" type="text" placeholder="gpt-4o-mini" value="\${esc(providerData.llm_model || '')}" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px;box-sizing:border-box" />
+            </div>
           </div>
-          <div class="settings-row">
-            <span class="settings-label">Model</span>
-            <span class="settings-value">\${esc(data.llm.model || '-')}</span>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">LLM API Key</label>
+            <input id="llm-key" type="password" placeholder="\${providerData.llm_api_key ? '••• configured •••' : 'Same as embedding or separate'}" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px;box-sizing:border-box" />
           </div>
-        </div>
-      \` : ''}
+          <button type="submit" class="btn btn-secondary">Save LLM Config</button>
+          <div id="llm-status" style="font-size:12px;min-height:20px;text-align:center"></div>
+        </form>
+      </div>
 
       <div class="card" style="margin-bottom:16px">
         <div class="card-title">Database</div>
         <div class="settings-row">
-          <span class="settings-label">Path</span>
-          <span class="settings-value">\${esc(data.db_path || '~/.memaxx/memories.db')}</span>
-        </div>
-        \${data.db_size ? \`
-          <div class="settings-row">
-            <span class="settings-label">Size</span>
-            <span class="settings-value">\${data.db_size}</span>
-          </div>
-        \` : ''}
-        <div class="settings-row">
-          <span class="settings-label">Version</span>
-          <span class="settings-value">\${esc(data.version || '-')}</span>
-        </div>
-      </div>
-
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-title">Maintenance</div>
-        <div class="flex items-center justify-between" style="padding:12px 0">
-          <div>
-            <div style="font-size:13px;color:var(--tp-text)">Backup Database</div>
-            <div class="text-xs text-muted">Create a timestamped copy of your memory database</div>
-          </div>
-          <button class="btn btn-secondary" id="backup-btn" onclick="createBackup()">Create Backup</button>
+          <span class="settings-label">Type</span>
+          <span class="settings-value">PostgreSQL + pgvector</span>
         </div>
       </div>
     \`;
+
+    // Show/hide Ollama URL
+    document.getElementById('cfg-provider').addEventListener('change', (e) => {
+      document.getElementById('cfg-ollama-url').style.display = e.target.value === 'ollama' ? 'block' : 'none';
+    });
+
+    // Test connection
+    document.getElementById('test-provider-btn').addEventListener('click', async () => {
+      const status = document.getElementById('provider-status');
+      status.textContent = 'Testing...';
+      status.style.color = 'var(--tp-text-secondary)';
+      const prov = document.getElementById('cfg-provider').value;
+      const key = document.getElementById('cfg-key').value;
+      const model = document.getElementById('cfg-model').value;
+      const baseUrl = document.getElementById('cfg-base-url')?.value || '';
+      try {
+        const res = await api('/api/provider/test', {
+          method: 'POST',
+          body: JSON.stringify({ provider: prov, api_key: key || 'from-env', model, base_url: baseUrl }),
+        });
+        if (res.success) {
+          status.innerHTML = '&#x2713; Connected! Dimension: ' + res.dimension;
+          status.style.color = '#22c55e';
+        } else {
+          status.textContent = 'Failed: ' + (res.error || 'Unknown error');
+          status.style.color = '#ef4444';
+        }
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        status.style.color = '#ef4444';
+      }
+    });
+
+    // Save embedding config
+    document.getElementById('provider-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('provider-status');
+      const body = { embedding_provider: document.getElementById('cfg-provider').value };
+      const key = document.getElementById('cfg-key').value;
+      const model = document.getElementById('cfg-model').value;
+      const baseUrl = document.getElementById('cfg-base-url')?.value;
+      if (key) body.embedding_api_key = key;
+      if (model) body.embedding_model = model;
+      if (baseUrl) body.embedding_base_url = baseUrl;
+      try {
+        const res = await api('/api/provider', { method: 'POST', body: JSON.stringify(body) });
+        status.innerHTML = res.success ? '&#x2713; Saved! Restart server to apply.' : 'Error';
+        status.style.color = res.success ? '#22c55e' : '#ef4444';
+      } catch (e) { status.textContent = e.message; status.style.color = '#ef4444'; }
+    });
+
+    // Save LLM config
+    document.getElementById('llm-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('llm-status');
+      const body = {};
+      const prov = document.getElementById('llm-provider').value;
+      const model = document.getElementById('llm-model').value;
+      const key = document.getElementById('llm-key').value;
+      if (prov) body.llm_provider = prov;
+      if (model) body.llm_model = model;
+      if (key) body.llm_api_key = key;
+      try {
+        const res = await api('/api/provider', { method: 'POST', body: JSON.stringify(body) });
+        status.innerHTML = res.success ? '&#x2713; Saved!' : 'Error';
+        status.style.color = res.success ? '#22c55e' : '#ef4444';
+      } catch (e) { status.textContent = e.message; status.style.color = '#ef4444'; }
+    });
+
   } catch (e) {
     el.innerHTML = '<div class="empty-state"><div class="empty-title">Error loading settings</div></div>';
   }

@@ -782,6 +782,152 @@ export async function getMemoryDetail(params, query_, body, projectHash) {
 
 // ── Projects ─────────────────────────────────────────────────────────
 
+// ── Provider Config (system_config table) ───────────────────────────
+
+export async function getProviderConfig() {
+  const { rows } = await query(
+    "SELECT key, value FROM system_config WHERE key LIKE 'embedding_%' OR key LIKE 'llm_%' ORDER BY key"
+  );
+
+  const config = {};
+  for (const row of rows) {
+    // Redact API keys
+    if (row.key.includes("api_key") && row.value && row.value.length > 4) {
+      config[row.key] = "***" + row.value.slice(-4);
+    } else {
+      config[row.key] = row.value;
+    }
+  }
+
+  // Include env var status
+  config._env_embedding_provider = process.env.EMBEDDING_PROVIDER || null;
+  config._env_has_key = !!process.env.EMBEDDING_API_KEY;
+  config._source = rows.length > 0 ? "database" : "environment";
+
+  return config;
+}
+
+export async function saveProviderConfig(params, query_, body) {
+  if (!body || typeof body !== "object") {
+    return { error: "Request body required", status: 400 };
+  }
+
+  const allowedKeys = [
+    "embedding_provider", "embedding_api_key", "embedding_model", "embedding_base_url",
+    "llm_provider", "llm_api_key", "llm_model", "llm_base_url",
+  ];
+
+  let saved = 0;
+  for (const [key, value] of Object.entries(body)) {
+    if (!allowedKeys.includes(key)) continue;
+    if (typeof value !== "string" || !value.trim()) continue;
+
+    await query(
+      `INSERT INTO system_config (key, value, updated_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+      [key, value.trim()]
+    );
+    saved++;
+  }
+
+  return { success: true, saved };
+}
+
+export async function testProviderConnection(params, query_, body) {
+  if (!body?.provider || !body?.api_key) {
+    return { error: "provider and api_key required", status: 400 };
+  }
+
+  const { provider, api_key, model, base_url } = body;
+
+  const urls = {
+    openai: "https://api.openai.com/v1",
+    openrouter: "https://openrouter.ai/api/v1",
+    ollama: base_url || "http://localhost:11434",
+  };
+
+  const models = {
+    openai: model || "text-embedding-3-small",
+    openrouter: model || "openai/text-embedding-3-small",
+    ollama: model || "nomic-embed-text",
+  };
+
+  const testUrl = base_url || urls[provider];
+  if (!testUrl) return { error: "Unknown provider", status: 400 };
+
+  try {
+    let res;
+    if (provider === "ollama") {
+      res = await fetch(`${testUrl}/api/embeddings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: models[provider], prompt: "test" }),
+      });
+    } else {
+      res = await fetch(`${testUrl}/embeddings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${api_key}`,
+        },
+        body: JSON.stringify({ model: models[provider], input: "test" }),
+      });
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { success: false, error: `${res.status}: ${text.slice(0, 200)}` };
+    }
+
+    const data = await res.json();
+    const dim = provider === "ollama"
+      ? data?.embedding?.length
+      : data?.data?.[0]?.embedding?.length;
+
+    return { success: true, dimension: dim, model: models[provider] };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Load provider config from database, falling back to environment variables.
+ * Called by bin.mjs on startup to determine embedding/llm config.
+ */
+export async function loadProviderConfigFromDb() {
+  try {
+    const { rows } = await query("SELECT key, value FROM system_config WHERE key LIKE 'embedding_%' OR key LIKE 'llm_%'");
+    if (rows.length === 0) return null;
+
+    const map = {};
+    for (const r of rows) map[r.key] = r.value;
+
+    const config = {
+      embedding: {
+        provider: map.embedding_provider || null,
+        api_key: map.embedding_api_key || null,
+        model: map.embedding_model || null,
+        base_url: map.embedding_base_url || null,
+      },
+    };
+
+    if (map.llm_provider) {
+      config.llm = {
+        provider: map.llm_provider,
+        api_key: map.llm_api_key || null,
+        model: map.llm_model || null,
+        base_url: map.llm_base_url || null,
+      };
+    }
+
+    return config.embedding.provider ? config : null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Projects ─────────────────────────────────────────────────────────
+
 export async function getProjects() {
   const { rows: projects } = await query(`
     SELECT
