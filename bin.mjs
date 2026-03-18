@@ -369,11 +369,17 @@ function buildProjectManifest(root) {
   return manifest;
 }
 
-// Startup context
-const startupCtx = resolveRequestContext(null);
-const startupManifest = buildProjectManifest(startupCtx.root);
-setProjectManifest(startupManifest);
-log(`Project: ${startupCtx.project.name} | id: ${startupCtx.project.id} | root: ${startupCtx.root}`);
+// Startup context — only resolve project in non-Docker (local) mode
+// In Docker, project identity comes from MCP client's project_root parameter
+const isDatabaseMode = !!process.env.DATABASE_URL;
+if (!isDatabaseMode) {
+  const startupCtx = resolveRequestContext(null);
+  const startupManifest = buildProjectManifest(startupCtx.root);
+  setProjectManifest(startupManifest);
+  log(`Project: ${startupCtx.project.name} | id: ${startupCtx.project.id} | root: ${startupCtx.root}`);
+} else {
+  log(`Docker mode — project identity determined by MCP clients`);
+}
 
 // ── MCP Protocol Handling (shared by both transports) ───────────────
 
@@ -421,9 +427,13 @@ async function handleToolsCall(req) {
   const toolName = req.params?.name;
   const toolArgs = req.params?.arguments || {};
 
-  const ctx = resolveRequestContext(toolArgs.project_root);
-  toolArgs.project_root = ctx.root;
-  toolArgs.project_id = toolArgs.project_id || ctx.project.id;
+  if (!isDatabaseMode) {
+    // Local mode: resolve project from .memaxx/project.json
+    const ctx = resolveRequestContext(toolArgs.project_root);
+    toolArgs.project_root = ctx.root;
+    toolArgs.project_id = toolArgs.project_id || ctx.project.id;
+  }
+  // Docker mode: tools.mjs getProjectHash() handles project_root via DJB2 hash
 
   try {
     const result = await handleToolCall(toolName, toolArgs);

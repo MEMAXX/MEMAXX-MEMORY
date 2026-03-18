@@ -7,6 +7,8 @@ import { query, generateId, contentHash } from "./db.mjs";
 import { generateEmbedding, cosineSimilarity } from "./embeddings.mjs";
 import { extractEntities } from "./llm.mjs";
 import { searchMemories, getPredictiveMemories, getRecentActivity, formatEmbedding } from "./search.mjs";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /** @type {object} */
 let _embeddingConfig = null;
@@ -540,13 +542,32 @@ export function setProjectManifest(manifest) {
 
 function getProjectHash(args) {
   const root = (args?.project_root || process.cwd()).replace(/\\/g, "/").replace(/\/+$/, "");
-  // Priority: explicit project_id > projectIdMap > git_remote hash > path hash
-  if (projectIdMap.has(root)) return projectIdMap.get(root);
+  // Priority: explicit project_id > projectIdMap > .memaxx/project.json > git_remote hash > path hash
   if (args?.project_id) return args.project_id;
+  if (projectIdMap.has(root)) return projectIdMap.get(root);
+
+  // Try reading .memaxx/project.json from the project_root (works in local mode)
+  try {
+    let dir = root;
+    for (let i = 0; i < 6; i++) {
+      try {
+        const pj = JSON.parse(readFileSync(join(dir, ".memaxx", "project.json"), "utf-8"));
+        if (pj?.id) {
+          projectIdMap.set(root, pj.id); // cache for future calls
+          return pj.id;
+        }
+      } catch { /* not here */ }
+      const parent = dir.replace(/\/[^/]+\/?$/, "") || "/";
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch { /* path not accessible (Docker can't see host filesystem) */ }
+
   // If git_remote is provided, use it for deterministic cross-machine hash
   if (args?.git_remote && typeof args.git_remote === "string" && args.git_remote.length > 0) {
     return resolveProjectHash({ project_root: args.git_remote });
   }
+  // Fallback: deterministic DJB2 hash of project_root path
   return resolveProjectHash(args);
 }
 
