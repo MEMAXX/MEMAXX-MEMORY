@@ -894,7 +894,10 @@ export async function testProviderConnection(params, query_, body) {
 
     return { success: true, dimension: dim, model: models[provider] };
   } catch (err) {
-    return { success: false, error: err.message };
+    const hint = err.cause?.code === 'ENOTFOUND' ? ' (DNS resolution failed — check network connectivity from Docker container)'
+      : err.cause?.code === 'ECONNREFUSED' ? ' (connection refused — is the provider URL correct?)'
+      : err.cause?.code ? ` (${err.cause.code})` : '';
+    return { success: false, error: err.message + hint };
   }
 }
 
