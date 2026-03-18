@@ -922,12 +922,15 @@ export async function loadProviderConfigFromDb() {
       },
     };
 
-    if (map.llm_provider) {
+    // LLM config — auto-inherit from embedding if not explicitly set
+    const llmProvider = map.llm_provider || map.embedding_provider || null;
+    if (llmProvider) {
+      const llmDefaults = { openai: 'gpt-4o-mini', gemini: 'gemini-2.0-flash', mistral: 'mistral-small-latest', openrouter: 'anthropic/claude-3.5-haiku', ollama: 'llama3.2' };
       config.llm = {
-        provider: map.llm_provider,
-        api_key: map.llm_api_key || null,
-        model: map.llm_model || null,
-        base_url: map.llm_base_url || null,
+        provider: llmProvider,
+        api_key: map.llm_api_key || map.embedding_api_key || null,
+        model: map.llm_model || llmDefaults[llmProvider] || 'gpt-4o-mini',
+        base_url: map.llm_base_url || map.embedding_base_url || null,
       };
     }
 

@@ -1,17 +1,13 @@
 {
-  "name": "memaxx-memory-local",
-  "version": "2.0.0",
-  "description": "MEMAXX Memory — Self-hosted persistent memory for AI coding tools. SQLite-based, runs locally.",
+  "name": "memaxx-memory",
+  "version": "4.0.0",
+  "description": "MEMAXX Memory — Self-hosted AI memory for coding assistants. PostgreSQL + pgvector, Docker-ready.",
   "type": "module",
-  "bin": {
-    "memaxx-memory-local": "memaxx-memory-local.mjs"
-  },
   "scripts": {
     "start": "node memaxx-memory-local.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^11.0.0",
-    "sqlite-vec": "^0.1.0"
+    "pg": "^8.13.0"
   },
   "keywords": [
     "mcp",
@@ -22,13 +18,17 @@
     "model-context-protocol",
     "memaxx",
     "self-hosted",
-    "local",
-    "sqlite",
+    "postgresql",
+    "pgvector",
+    "docker",
     "ollama"
   ],
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "engines": {
     "node": ">=20"
   },
-  "main": "memaxx-memory-local.mjs"
+  "main": "memaxx-memory-local.mjs",
+  "bin": {
+    "memaxx-memory-local": "memaxx-memory-local.mjs"
+  }
 }
