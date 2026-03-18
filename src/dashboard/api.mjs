@@ -942,14 +942,17 @@ export async function loadProviderConfigFromDb() {
 export async function getProjects() {
   const { rows: projects } = await query(`
     SELECT
-      project_hash,
+      m.project_hash,
       COUNT(*) as memory_count,
-      MIN(created_at) as first_memory,
-      MAX(created_at) as last_memory,
-      COUNT(DISTINCT type) as type_count
-    FROM memories
-    WHERE is_archived = FALSE
-    GROUP BY project_hash
+      MIN(m.created_at) as first_memory,
+      MAX(m.created_at) as last_memory,
+      COUNT(DISTINCT m.type) as type_count,
+      p.name as project_name,
+      p.git_remote
+    FROM memories m
+    LEFT JOIN projects p ON p.project_hash = m.project_hash
+    WHERE m.is_archived = FALSE
+    GROUP BY m.project_hash, p.name, p.git_remote
     ORDER BY last_memory DESC
   `);
 
@@ -972,4 +975,18 @@ export async function getProjects() {
   }
 
   return { projects: enriched, total: enriched.length };
+}
+
+export async function renameProject(params, query_, body) {
+  const { project_hash, name } = body || {};
+  if (!project_hash || !name || name.trim().length < 1) {
+    return { error: "project_hash and name required", status: 400 };
+  }
+  await query(
+    `INSERT INTO projects (project_hash, name)
+     VALUES ($1, $2)
+     ON CONFLICT (project_hash) DO UPDATE SET name = $2, updated_at = CURRENT_TIMESTAMP`,
+    [project_hash, name.trim()]
+  );
+  return { success: true, project_hash, name: name.trim() };
 }

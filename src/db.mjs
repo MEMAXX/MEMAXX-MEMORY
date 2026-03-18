@@ -401,6 +401,18 @@ function getMigrations(dim) {
       `,
     },
     {
+      name: "017_projects",
+      sql: `
+        CREATE TABLE IF NOT EXISTS projects (
+          project_hash TEXT PRIMARY KEY,
+          name TEXT NOT NULL DEFAULT '',
+          git_remote TEXT,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        );
+      `,
+    },
+    {
       name: "016_system_config",
       sql: `
         CREATE TABLE IF NOT EXISTS system_config (

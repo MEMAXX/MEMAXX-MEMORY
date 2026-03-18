@@ -709,6 +709,7 @@ async function startHttpServer() {
       ["GET", "/api/search", wrapAsync((p, q, b, ph) => dashApi.searchMemoriesHandler(p, q, b, ph, embeddingConfig))],
       ["GET", "/api/insights", wrapAsync(dashApi.getInsights)],
       ["GET", "/api/projects", wrapAsyncNoProject(dashApi.getProjects)],
+      ["POST", "/api/projects/rename", wrapAsyncNoProject(dashApi.renameProject)],
       ["POST", "/api/backup", wrapNoProject(dashApi.createBackup)],
       ["GET", "/api/export", wrapAsync(dashApi.exportMemories)],
       ["POST", "/api/import", wrapAsync(dashApi.importMemories)],

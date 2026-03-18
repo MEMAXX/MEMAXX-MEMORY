@@ -599,6 +599,21 @@ export async function handleToolCall(name, args) {
 async function handleInit(args, ph) {
   const daysBack = Math.min(30, Math.max(1, args?.days_back || 7));
 
+  // Register/update project name
+  try {
+    const projectRoot = args?.project_root || process.cwd();
+    const defaultName = projectRoot.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || "unnamed";
+    const gitRemote = args?.git_remote || null;
+    await query(
+      `INSERT INTO projects (project_hash, name, git_remote)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (project_hash) DO UPDATE SET
+         git_remote = COALESCE(NULLIF($3, ''), projects.git_remote),
+         updated_at = CURRENT_TIMESTAMP`,
+      [ph, defaultName, gitRemote]
+    );
+  } catch { /* projects table may not exist yet */ }
+
   // Run dream phase on startup (consolidation, archival, pattern promotion)
   const dreamResult = await runDreamPhase(ph);
 

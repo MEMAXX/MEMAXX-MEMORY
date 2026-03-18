@@ -1224,12 +1224,32 @@ function renderProjectSwitcher() {
     + esc(p.project_name || p.project_hash.slice(0, 8)) + ' (' + p.memory_count + ')'
     + '</option>'
   ).join('');
-  container.innerHTML = '<select id="project-select" style="width:100%;padding:6px 8px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:12px">' + opts + '</select>';
+  container.innerHTML = '<div style="display:flex;gap:4px;align-items:center">'
+    + '<select id="project-select" style="flex:1;padding:6px 8px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:12px">' + opts + '</select>'
+    + '<button id="rename-project-btn" style="padding:4px 6px;border-radius:6px;background:none;border:1px solid var(--tp-border);color:var(--tp-text-secondary);cursor:pointer;font-size:11px" title="Rename project">&#9998;</button>'
+    + '</div>';
   container.style.display = 'block';
   document.getElementById('project-select').addEventListener('change', (e) => {
     activeProject = allProjects.find(p => p.project_hash === e.target.value) || allProjects[0];
     currentPage = ''; // force re-render
     navigate();
+  });
+  document.getElementById('rename-project-btn').addEventListener('click', async () => {
+    if (!activeProject) return;
+    const current = activeProject.project_name || activeProject.project_hash.slice(0, 8);
+    const newName = prompt('Rename project:', current);
+    if (!newName || newName.trim() === current) return;
+    try {
+      await fetch('/api/projects/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_hash: activeProject.project_hash, name: newName.trim() })
+      });
+      activeProject.project_name = newName.trim();
+      const idx = allProjects.findIndex(p => p.project_hash === activeProject.project_hash);
+      if (idx >= 0) allProjects[idx].project_name = newName.trim();
+      renderProjectSwitcher();
+    } catch {}
   });
 }
 
