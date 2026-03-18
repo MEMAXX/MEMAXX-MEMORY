@@ -88,7 +88,9 @@ export function renderPage(opts = {}) {
       </div>
     </main>
   </div>
-  <div id="onboarding-overlay"></div>
+  <div id="onboarding-page" style="display:none">
+    <div id="onboarding-content"></div>
+  </div>
   <script nonce="${nonce}">${JS(opts)}</script>
 </body>
 </html>`;
@@ -880,27 +882,41 @@ body {
   margin: 0 auto;
 }
 
-/* Onboarding Overlay */
-#onboarding-overlay {
+/* Onboarding Full Page */
+#onboarding-page {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.7);
+  background: var(--tp-bg);
   z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(4px);
+  padding: 40px 24px;
+}
+
+.onboarding-card {
+  width: 520px;
+  max-width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.onboarding-logo {
+  margin-bottom: 32px;
+}
+.onboarding-logo-icon {
+  width: 48px; height: 48px; border-radius: 14px;
+  background: linear-gradient(135deg, var(--tp-purple), #818CF8);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; font-weight: 900; color: #fff;
 }
 
 .onboarding-modal {
-  background: var(--tp-surface);
-  border: 1px solid var(--tp-border);
-  border-radius: 16px;
-  width: 560px;
-  max-width: 90vw;
-  max-height: 85vh;
-  overflow-y: auto;
-  padding: 32px;
+  width: 100%;
+  padding: 0;
 }
 
 .onboarding-step { display: none; }
@@ -1133,17 +1149,19 @@ function navigate() {
 
 window.addEventListener('hashchange', navigate);
 window.addEventListener('load', async () => {
-  navigate();
-  // Auto-show onboarding if no provider configured
+  // Check if provider is configured — if not, show onboarding INSTEAD of dashboard
   try {
     const provRes = await fetch('/api/provider');
     if (provRes.ok) {
       const prov = await provRes.json();
       if (!prov.embedding_provider && !prov._env_embedding_provider) {
+        document.getElementById('app').style.display = 'none';
         showOnboarding();
+        return;
       }
     }
   } catch { /* ignore */ }
+  navigate();
 });
 
 // ── API Helpers ──────────────────────────────────────────────────────
@@ -2221,12 +2239,10 @@ window.importData = async (input) => {
 // ── Onboarding ───────────────────────────────────────────────────────
 
 function showOnboarding() {
-  let overlay = document.getElementById('onboarding-overlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'onboarding-overlay';
-    document.body.appendChild(overlay);
-  }
+  const page = document.getElementById('onboarding-page');
+  const container = document.getElementById('onboarding-content');
+  if (!page || !container) return;
+  page.style.display = 'flex';
 
   let step = 0;
   const steps = [
@@ -2393,19 +2409,22 @@ Full prompt: SYSTEM_PROMPT.md in the repo<button class="copy-btn" onclick="copyS
   ];
 
   function render() {
-    overlay.innerHTML = \`
-      <div class="onboarding-modal">
-        <div class="onboarding-title">\${steps[step].title}</div>
-        \${steps[step].content}
-        <div class="onboarding-nav">
-          <div class="step-dots">
-            \${steps.map((_, i) => \`<div class="step-dot \${i === step ? 'active' : ''}"></div>\`).join('')}
-          </div>
-          <div class="flex gap-2">
-            \${step > 0 ? \`<button class="btn btn-ghost" onclick="onboardingPrev()">Back</button>\` : \`<button class="btn btn-ghost" onclick="closeOnboarding()">Skip</button>\`}
-            \${step < steps.length - 1
-              ? \`<button class="btn btn-primary" onclick="onboardingNext()">Next</button>\`
-              : \`<button class="btn btn-primary" onclick="closeOnboarding()">Get Started</button>\`}
+    container.innerHTML = \`
+      <div class="onboarding-card">
+        <div class="onboarding-logo"><div class="onboarding-logo-icon">M</div></div>
+        <div class="onboarding-modal">
+          <div class="onboarding-title">\${steps[step].title}</div>
+          \${steps[step].content}
+          <div class="onboarding-nav">
+            <div class="step-dots">
+              \${steps.map((_, i) => \`<div class="step-dot \${i === step ? 'active' : ''}"></div>\`).join('')}
+            </div>
+            <div class="flex gap-2">
+              \${step > 0 ? \`<button class="btn btn-ghost" onclick="onboardingPrev()">Back</button>\` : ''}
+              \${step < steps.length - 1
+                ? \`<button class="btn btn-primary" onclick="onboardingNext()">Next</button>\`
+                : \`<button class="btn btn-primary" onclick="closeOnboarding()">Open Dashboard</button>\`}
+            </div>
           </div>
         </div>
       </div>
@@ -2430,7 +2449,10 @@ Full prompt: SYSTEM_PROMPT.md in the repo<button class="copy-btn" onclick="copyS
       if (baseUrl && provider === 'ollama') { body.embedding_base_url = baseUrl; body.llm_base_url = baseUrl; }
       try { await fetch('/api/provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); } catch {}
     }
-    overlay.remove();
+    // Hide onboarding, show dashboard
+    page.style.display = 'none';
+    document.getElementById('app').style.display = '';
+    navigate();
   };
 
   window._obProvider = 'openai';
