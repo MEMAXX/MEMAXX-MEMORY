@@ -2361,7 +2361,7 @@ function showOnboarding() {
             <button class="btn btn-secondary mcp-tab" onclick="showMcpConfig('windsurf', this)">Windsurf</button>
           </div>
           <div id="mcp-config-claude">
-            <div class="code-block" style="margin-bottom:8px">claude mcp add memaxx-memory http://localhost:3100/mcp<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code-block" style="margin-bottom:8px">claude mcp add --transport http memaxx-memory http://localhost:3100/mcp<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
             <div class="text-xs text-secondary" style="margin-bottom:8px;text-align:center">or add manually to your MCP config:</div>
             <div class="code-block">{
   "mcpServers": {
