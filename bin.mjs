@@ -772,8 +772,29 @@ async function startHttpServer() {
 
     // ── MCP Streamable HTTP Endpoint ────────────────────────────
     if (pathname === "/mcp") {
+      // GET opens an SSE stream for server-initiated notifications (Streamable HTTP spec)
+      if (method === "GET") {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "Mcp-Session-Id": sessionId || "",
+        });
+        // Keep connection alive with periodic pings
+        const keepAlive = setInterval(() => { try { res.write(": ping\n\n"); } catch { clearInterval(keepAlive); } }, 15000);
+        req.on("close", () => clearInterval(keepAlive));
+        return;
+      }
+
+      if (method === "DELETE") {
+        sessionId = null;
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
       if (method !== "POST") {
-        sendJson(res, 405, { error: "MCP endpoint accepts POST only" });
+        sendJson(res, 405, { error: "Method not allowed" });
         return;
       }
 
