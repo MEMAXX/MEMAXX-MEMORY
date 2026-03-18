@@ -180,7 +180,14 @@ MCP Config (stdio — legacy):
 
 let config = buildConfigFromEnv() || readConfig();
 
-if (!config) {
+if (!config && process.env.DATABASE_URL) {
+  // Docker mode without embedding provider — server still starts for dashboard onboarding
+  config = {
+    version: 2,
+    database_url: process.env.DATABASE_URL,
+  };
+  log("No embedding provider configured. Dashboard onboarding will guide setup.");
+} else if (!config) {
   if (process.stdin.isTTY && !flags.has("--stdio")) {
     console.log(`
   ┌─────────────────────────────────────────────┐

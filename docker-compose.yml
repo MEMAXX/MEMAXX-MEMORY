@@ -22,10 +22,10 @@ services:
       # Database
       - DATABASE_URL=postgresql://memaxx:${POSTGRES_PASSWORD:-memaxx}@postgres:5432/memaxx
 
-      # Embedding provider (required)
-      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
-      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      # Embedding provider (configured via dashboard onboarding)
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-}
       - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-}
 
       # LLM for entity extraction (optional)
