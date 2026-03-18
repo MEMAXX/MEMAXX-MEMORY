@@ -1227,6 +1227,19 @@ body {
   .search-bar .input { width: 100%; }
   .search-bar select { width: 100% !important; }
   .onboarding-modal { width: 95vw; padding: 20px; }
+  .page-title { font-size: 18px; }
+  .card-value { font-size: 22px; }
+  .memory-card-header { flex-wrap: wrap; }
+  .postmortem-header { flex-wrap: wrap; gap: 6px; }
+  .graph-panel { width: 100%; }
+  .settings-row { flex-direction: column; gap: 4px; align-items: flex-start; }
+  .settings-value { font-size: 11px; word-break: break-all; }
+}
+
+@media (max-width: 480px) {
+  .stat-grid { grid-template-columns: 1fr; }
+  .memory-card-meta { flex-wrap: wrap; }
+  .task-item { flex-wrap: wrap; }
 }
 `;
 
@@ -2263,6 +2276,15 @@ async function renderSettings(el) {
           <span class="settings-value">PostgreSQL + pgvector</span>
         </div>
       </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Danger Zone</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary" onclick="resetConfig()" style="border-color:var(--tp-error);color:var(--tp-error)">Reset Provider Config</button>
+          <button class="btn btn-secondary" onclick="rerunOnboarding()">Re-run Onboarding</button>
+        </div>
+        <div id="reset-status" style="font-size:12px;min-height:20px;text-align:center;margin-top:8px"></div>
+      </div>
     \`;
 
     // Show/hide Ollama URL
@@ -2332,6 +2354,23 @@ async function renderSettings(el) {
         status.style.color = res.success ? '#22c55e' : '#ef4444';
       } catch (e) { status.textContent = e.message; status.style.color = '#ef4444'; }
     });
+
+    window.resetConfig = async () => {
+      if (!confirm('Reset all provider configuration? You will need to reconfigure embedding and LLM providers.')) return;
+      const status = document.getElementById('reset-status');
+      try {
+        await fetch('/api/provider', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ embedding_provider: '', embedding_api_key: '', embedding_model: '', embedding_base_url: '', llm_provider: '', llm_api_key: '', llm_model: '', llm_base_url: '' })
+        });
+        status.innerHTML = '&#x2713; Config reset. Reload the page to see onboarding.';
+        status.style.color = '#22c55e';
+      } catch (e) { status.textContent = e.message; status.style.color = '#ef4444'; }
+    };
+
+    window.rerunOnboarding = () => {
+      document.getElementById('app').style.display = 'none';
+      showOnboarding();
+    };
 
   } catch (e) {
     el.innerHTML = '<div class="empty-state"><div class="empty-title">Error loading settings</div></div>';

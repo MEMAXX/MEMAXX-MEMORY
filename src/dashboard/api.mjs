@@ -818,19 +818,26 @@ export async function saveProviderConfig(params, query_, body) {
   ];
 
   let saved = 0;
+  let deleted = 0;
   for (const [key, value] of Object.entries(body)) {
     if (!allowedKeys.includes(key)) continue;
-    if (typeof value !== "string" || !value.trim()) continue;
+    if (typeof value !== "string") continue;
 
-    await query(
-      `INSERT INTO system_config (key, value, updated_at) VALUES ($1, $2, NOW())
-       ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
-      [key, value.trim()]
-    );
-    saved++;
+    if (!value.trim()) {
+      // Empty value = delete the key
+      await query("DELETE FROM system_config WHERE key = $1", [key]);
+      deleted++;
+    } else {
+      await query(
+        `INSERT INTO system_config (key, value, updated_at) VALUES ($1, $2, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+        [key, value.trim()]
+      );
+      saved++;
+    }
   }
 
-  return { success: true, saved };
+  return { success: true, saved, deleted };
 }
 
 export async function testProviderConnection(params, query_, body) {
@@ -863,6 +870,8 @@ export async function testProviderConnection(params, query_, body) {
   const testUrl = base_url || urls[provider];
   if (!testUrl) return { error: "Unknown provider or missing base URL", status: 400 };
 
+  const fetchTimeout = AbortSignal.timeout(15000); // 15s timeout
+
   try {
     let res;
     if (provider === "ollama") {
@@ -870,6 +879,7 @@ export async function testProviderConnection(params, query_, body) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: models[provider], prompt: "test" }),
+        signal: fetchTimeout,
       });
     } else {
       res = await fetch(`${testUrl}/embeddings`, {
@@ -879,6 +889,7 @@ export async function testProviderConnection(params, query_, body) {
           "Authorization": `Bearer ${api_key}`,
         },
         body: JSON.stringify({ model: models[provider], input: "test" }),
+        signal: fetchTimeout,
       });
     }
 
@@ -894,7 +905,8 @@ export async function testProviderConnection(params, query_, body) {
 
     return { success: true, dimension: dim, model: models[provider] };
   } catch (err) {
-    const hint = err.cause?.code === 'ENOTFOUND' ? ' (DNS resolution failed — check network connectivity from Docker container)'
+    const hint = err.name === 'TimeoutError' ? ' (request timed out after 15s)'
+      : err.cause?.code === 'ENOTFOUND' ? ' (DNS resolution failed — check network connectivity from Docker container)'
       : err.cause?.code === 'ECONNREFUSED' ? ' (connection refused — is the provider URL correct?)'
       : err.cause?.code ? ` (${err.cause.code})` : '';
     return { success: false, error: err.message + hint };
