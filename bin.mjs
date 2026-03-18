@@ -77,15 +77,20 @@ function buildConfigFromEnv() {
     created_at: new Date().toISOString(),
   };
 
-  // Optional LLM config for entity extraction
-  if (process.env.LLM_PROVIDER) {
-    config.llm = {
-      provider: process.env.LLM_PROVIDER,
-      api_key: process.env.LLM_API_KEY || process.env.EMBEDDING_API_KEY || null,
-      base_url: process.env.LLM_BASE_URL || getProviderUrl(process.env.LLM_PROVIDER),
-      model: process.env.LLM_MODEL || "gpt-4o-mini",
-    };
-  }
+  // LLM config for entity extraction (knowledge graph)
+  // Defaults to same provider as embedding if not explicitly set
+  const llmProvider = process.env.LLM_PROVIDER || provider;
+  const llmDefaults = {
+    openai: "gpt-4o-mini",
+    openrouter: "anthropic/claude-3.5-haiku",
+    ollama: "llama3.2",
+  };
+  config.llm = {
+    provider: llmProvider,
+    api_key: process.env.LLM_API_KEY || process.env.EMBEDDING_API_KEY || null,
+    base_url: process.env.LLM_BASE_URL || getProviderUrl(llmProvider),
+    model: process.env.LLM_MODEL || llmDefaults[llmProvider] || "gpt-4o-mini",
+  };
 
   return config;
 }

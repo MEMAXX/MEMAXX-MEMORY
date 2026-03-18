@@ -2415,14 +2415,19 @@ Full prompt: SYSTEM_PROMPT.md in the repo<button class="copy-btn" onclick="copyS
   window.onboardingNext = () => { if (step < steps.length - 1) { step++; render(); } };
   window.onboardingPrev = () => { if (step > 0) { step--; render(); } };
   window.closeOnboarding = async () => {
-    // Save provider config before closing if user configured one
+    // Save provider config before closing — embedding + LLM (same provider)
     const provider = window._obProvider;
     const key = document.getElementById('ob-api-key')?.value;
     const baseUrl = document.getElementById('ob-base-url')?.value;
     if (provider && (key || provider === 'ollama')) {
-      const body = { embedding_provider: provider };
-      if (key) body.embedding_api_key = key;
-      if (baseUrl && provider === 'ollama') body.embedding_base_url = baseUrl;
+      const llmModels = { openai: 'gpt-4o-mini', openrouter: 'anthropic/claude-3.5-haiku', ollama: 'llama3.2' };
+      const body = {
+        embedding_provider: provider,
+        llm_provider: provider,
+        llm_model: llmModels[provider] || 'gpt-4o-mini',
+      };
+      if (key) { body.embedding_api_key = key; body.llm_api_key = key; }
+      if (baseUrl && provider === 'ollama') { body.embedding_base_url = baseUrl; body.llm_base_url = baseUrl; }
       try { await fetch('/api/provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); } catch {}
     }
     overlay.remove();
