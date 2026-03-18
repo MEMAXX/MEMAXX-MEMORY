@@ -12,6 +12,8 @@
  * @param {{ onboarding?: boolean, port?: number }} opts
  * @returns {string} Complete HTML document
  */
+const MEMAXX_LOGO_B64 = 'data:image/webp;base64,UklGRqgBAABXRUJQVlA4IJwBAABwCwCdASpAAEAAPm0ok0WkIiGXC26oQAbEtIAHTmsBlP8G9IFMw8WWoB5RnrV/a5PGGb0UArNz7sMfxaH8AVmehSIy13A8DQw5Xav6UNMPyvesApg/gKbyDag3BoQrtVeRupUAAP79NoUDKFXl/yz//HOUT6vmgCxqI8D+2C0nOFSn/TCQA5if+waFerrnWUbLjlmnuMygcvuUz+tTPN0OIoagtRAJ4xil9VpRiM90gU7kFV4QBFMd/jm7A7uB4Ys02REEwAPKjtyI/gXTFqCI3WexSVbBUBxA1A0TR+OR/1SGmuK7os+U4RyfruVcGcJ+ldCqcFK+xwzlEFQK3V0IR7iW/8M/tft8Pjw5LjE35lul9jI9pwFq6X7BOtRWyrX4Kh8VVT4jtyZkGLlZ/ex3+oX1aSveSS/jc9LVwKiiGcOEXmkkhl5lmotB/ox+Bc6Yev2AIDLVFvWFzz+NywM0lcmW8+okum2kzltkOkRQWbUsVdPX6CBeFDi4xkQ3/8UwL/9UqQxbFeZIQYk7Lv1e8WmdYKwpO59sAAAA';
+
 export function renderPage(opts = {}) {
   const nonce = Math.random().toString(36).slice(2, 14);
   return `<!DOCTYPE html>
@@ -20,7 +22,7 @@ export function renderPage(opts = {}) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MEMAXX Memory</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23111'/><text x='16' y='22' text-anchor='middle' font-size='18' fill='%23A78BFA'>M</text></svg>">
+  <link rel="icon" href="${MEMAXX_LOGO_B64}">
   <style nonce="${nonce}">${CSS}</style>
 </head>
 <body>
@@ -28,7 +30,7 @@ export function renderPage(opts = {}) {
     <nav id="sidebar">
       <div class="sidebar-header">
         <div class="logo">
-          <div class="logo-icon">M</div>
+          <img class="logo-icon" src="${MEMAXX_LOGO_B64}" alt="MEMAXX" />
           <span class="logo-text">MEMAXX<span class="logo-sub">Memory</span></span>
         </div>
       </div>
@@ -177,14 +179,8 @@ body {
 .logo-icon {
   width: 32px;
   height: 32px;
-  background: var(--tp-gradient);
   border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 16px;
-  color: white;
+  object-fit: contain;
 }
 
 .logo-text {
@@ -909,9 +905,7 @@ body {
 }
 .onboarding-logo-icon {
   width: 48px; height: 48px; border-radius: 14px;
-  background: linear-gradient(135deg, var(--tp-purple), #818CF8);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 24px; font-weight: 900; color: #fff;
+  object-fit: contain;
 }
 
 .onboarding-modal {
@@ -1998,8 +1992,12 @@ async function renderSettings(el) {
               <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Provider</label>
               <select id="cfg-provider" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px">
                 <option value="openai" \${provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+                <option value="gemini" \${provider === 'gemini' ? 'selected' : ''}>Google Gemini</option>
+                <option value="mistral" \${provider === 'mistral' ? 'selected' : ''}>Mistral</option>
+                <option value="voyage" \${provider === 'voyage' ? 'selected' : ''}>Voyage AI</option>
                 <option value="openrouter" \${provider === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
                 <option value="ollama" \${provider === 'ollama' ? 'selected' : ''}>Ollama (local)</option>
+                <option value="custom" \${provider === 'custom' ? 'selected' : ''}>Custom (OpenAI-compatible)</option>
               </select>
             </div>
             <div>
@@ -2011,8 +2009,8 @@ async function renderSettings(el) {
             <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">API Key</label>
             <input id="cfg-key" type="password" placeholder="\${hasKey ? '••• key configured •••' : 'sk-...'}" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px;box-sizing:border-box" />
           </div>
-          <div id="cfg-ollama-url" style="display:\${provider === 'ollama' ? 'block' : 'none'}">
-            <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Ollama URL</label>
+          <div id="cfg-ollama-url" style="display:\${provider === 'ollama' || provider === 'custom' ? 'block' : 'none'}">
+            <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Base URL</label>
             <input id="cfg-base-url" type="text" placeholder="http://localhost:11434" value="\${esc(providerData.embedding_base_url || '')}" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px;box-sizing:border-box" />
           </div>
           <div style="display:flex;gap:8px;margin-top:4px">
@@ -2033,8 +2031,11 @@ async function renderSettings(el) {
               <select id="llm-provider" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:13px">
                 <option value="">None</option>
                 <option value="openai" \${providerData.llm_provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+                <option value="gemini" \${providerData.llm_provider === 'gemini' ? 'selected' : ''}>Google Gemini</option>
+                <option value="mistral" \${providerData.llm_provider === 'mistral' ? 'selected' : ''}>Mistral</option>
                 <option value="openrouter" \${providerData.llm_provider === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
                 <option value="ollama" \${providerData.llm_provider === 'ollama' ? 'selected' : ''}>Ollama</option>
+                <option value="custom" \${providerData.llm_provider === 'custom' ? 'selected' : ''}>Custom</option>
               </select>
             </div>
             <div>
@@ -2062,7 +2063,7 @@ async function renderSettings(el) {
 
     // Show/hide Ollama URL
     document.getElementById('cfg-provider').addEventListener('change', (e) => {
-      document.getElementById('cfg-ollama-url').style.display = e.target.value === 'ollama' ? 'block' : 'none';
+      const v = e.target.value; document.getElementById('cfg-ollama-url').style.display = (v === 'ollama' || v === 'custom') ? 'block' : 'none';
     });
 
     // Test connection
@@ -2278,11 +2279,32 @@ function showOnboarding() {
               <div class="text-xs text-secondary">text-embedding-3-small (1536 dims) &mdash; recommended</div>
             </div>
           </label>
+          <label class="onboarding-radio" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--tp-border);cursor:pointer;transition:border-color 0.2s" onclick="selectProvider('gemini')">
+            <input type="radio" name="ob-provider" value="gemini" style="accent-color:var(--tp-purple)"/>
+            <div>
+              <div style="font-weight:600;font-size:14px">Google Gemini</div>
+              <div class="text-xs text-secondary">text-embedding-004 (768 dims) &mdash; generous free tier</div>
+            </div>
+          </label>
+          <label class="onboarding-radio" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--tp-border);cursor:pointer;transition:border-color 0.2s" onclick="selectProvider('mistral')">
+            <input type="radio" name="ob-provider" value="mistral" style="accent-color:var(--tp-purple)"/>
+            <div>
+              <div style="font-weight:600;font-size:14px">Mistral</div>
+              <div class="text-xs text-secondary">mistral-embed (1024 dims) &mdash; EU-based</div>
+            </div>
+          </label>
+          <label class="onboarding-radio" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--tp-border);cursor:pointer;transition:border-color 0.2s" onclick="selectProvider('voyage')">
+            <input type="radio" name="ob-provider" value="voyage" style="accent-color:var(--tp-purple)"/>
+            <div>
+              <div style="font-weight:600;font-size:14px">Voyage AI</div>
+              <div class="text-xs text-secondary">voyage-3-lite (512 dims) &mdash; optimized for code</div>
+            </div>
+          </label>
           <label class="onboarding-radio" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--tp-border);cursor:pointer;transition:border-color 0.2s" onclick="selectProvider('openrouter')">
             <input type="radio" name="ob-provider" value="openrouter" style="accent-color:var(--tp-purple)"/>
             <div>
               <div style="font-weight:600;font-size:14px">OpenRouter</div>
-              <div class="text-xs text-secondary">Same models, pay-per-use &mdash; no monthly commitment</div>
+              <div class="text-xs text-secondary">Multiple providers, pay-per-use &mdash; no monthly commitment</div>
             </div>
           </label>
           <label class="onboarding-radio" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--tp-border);cursor:pointer;transition:border-color 0.2s" onclick="selectProvider('ollama')">
@@ -2290,6 +2312,13 @@ function showOnboarding() {
             <div>
               <div style="font-weight:600;font-size:14px">Ollama (100% local)</div>
               <div class="text-xs text-secondary">nomic-embed-text &mdash; free, no API key needed</div>
+            </div>
+          </label>
+          <label class="onboarding-radio" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--tp-border);cursor:pointer;transition:border-color 0.2s" onclick="selectProvider('custom')">
+            <input type="radio" name="ob-provider" value="custom" style="accent-color:var(--tp-purple)"/>
+            <div>
+              <div style="font-weight:600;font-size:14px">Custom (OpenAI-compatible)</div>
+              <div class="text-xs text-secondary">Any provider with /v1/embeddings endpoint</div>
             </div>
           </label>
         </div>
@@ -2306,9 +2335,13 @@ function showOnboarding() {
           <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">API Key</label>
           <input id="ob-api-key" type="password" placeholder="sk-..." style="width:100%;padding:10px 12px;border-radius:10px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:14px;box-sizing:border-box;outline:none" />
         </div>
-        <div id="ob-ollama-url" style="display:none;margin:12px 0">
-          <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Ollama URL</label>
-          <input id="ob-base-url" type="text" placeholder="http://host.docker.internal:11434" value="http://host.docker.internal:11434" style="width:100%;padding:10px 12px;border-radius:10px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:14px;box-sizing:border-box;outline:none" />
+        <div id="ob-base-url-wrap" style="display:none;margin:12px 0">
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em" id="ob-base-url-label">Base URL</label>
+          <input id="ob-base-url" type="text" placeholder="http://host.docker.internal:11434" style="width:100%;padding:10px 12px;border-radius:10px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:14px;box-sizing:border-box;outline:none" />
+        </div>
+        <div id="ob-model-wrap" style="display:none;margin:12px 0">
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Embedding Model</label>
+          <input id="ob-model" type="text" placeholder="text-embedding-3-small" style="width:100%;padding:10px 12px;border-radius:10px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:14px;box-sizing:border-box;outline:none" />
         </div>
         <button class="btn btn-secondary" style="width:100%;margin:8px 0" onclick="testOnboardingProvider()">Test Connection</button>
         <div id="ob-test-status" style="font-size:13px;text-align:center;min-height:24px;margin-top:4px"></div>
@@ -2411,7 +2444,7 @@ Full prompt: SYSTEM_PROMPT.md in the repo<button class="copy-btn" onclick="copyS
   function render() {
     container.innerHTML = \`
       <div class="onboarding-card">
-        <div class="onboarding-logo"><div class="onboarding-logo-icon">M</div></div>
+        <div class="onboarding-logo"><img class="onboarding-logo-icon" src="${MEMAXX_LOGO_B64}" alt="MEMAXX" /></div>
         <div class="onboarding-modal">
           <div class="onboarding-title">\${steps[step].title}</div>
           \${steps[step].content}
@@ -2438,15 +2471,18 @@ Full prompt: SYSTEM_PROMPT.md in the repo<button class="copy-btn" onclick="copyS
     const provider = window._obProvider;
     const key = document.getElementById('ob-api-key')?.value;
     const baseUrl = document.getElementById('ob-base-url')?.value;
+    const customModel = document.getElementById('ob-model')?.value;
     if (provider && (key || provider === 'ollama')) {
-      const llmModels = { openai: 'gpt-4o-mini', openrouter: 'anthropic/claude-3.5-haiku', ollama: 'llama3.2' };
+      const llmModels = { openai: 'gpt-4o-mini', gemini: 'gemini-2.0-flash', mistral: 'mistral-small-latest', voyage: '', openrouter: 'anthropic/claude-3.5-haiku', ollama: 'llama3.2', custom: '' };
       const body = {
         embedding_provider: provider,
-        llm_provider: provider,
+        llm_provider: llmModels[provider] ? provider : 'openai',
         llm_model: llmModels[provider] || 'gpt-4o-mini',
       };
+      if (customModel) body.embedding_model = customModel;
       if (key) { body.embedding_api_key = key; body.llm_api_key = key; }
-      if (baseUrl && provider === 'ollama') { body.embedding_base_url = baseUrl; body.llm_base_url = baseUrl; }
+      const needsBaseUrl = provider === 'ollama' || provider === 'custom';
+      if (baseUrl && needsBaseUrl) { body.embedding_base_url = baseUrl; if (provider === 'ollama') body.llm_base_url = baseUrl; }
       try { await fetch('/api/provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); } catch {}
     }
     // Hide onboarding, show dashboard
@@ -2458,20 +2494,41 @@ Full prompt: SYSTEM_PROMPT.md in the repo<button class="copy-btn" onclick="copyS
   window._obProvider = 'openai';
   window.selectProvider = (p) => {
     window._obProvider = p;
-    const ollamaUrl = document.getElementById('ob-ollama-url');
+    const baseUrlWrap = document.getElementById('ob-base-url-wrap');
+    const baseUrlInput = document.getElementById('ob-base-url');
+    const baseUrlLabel = document.getElementById('ob-base-url-label');
+    const modelWrap = document.getElementById('ob-model-wrap');
+    const modelInput = document.getElementById('ob-model');
     const keyDesc = document.getElementById('ob-key-desc');
     const keyInput = document.getElementById('ob-api-key');
-    if (ollamaUrl) ollamaUrl.style.display = p === 'ollama' ? 'block' : 'none';
+
+    const needsBaseUrl = p === 'ollama' || p === 'custom';
+    const needsModel = p === 'custom';
+    if (baseUrlWrap) baseUrlWrap.style.display = needsBaseUrl ? 'block' : 'none';
+    if (modelWrap) modelWrap.style.display = needsModel ? 'block' : 'none';
+
+    if (baseUrlInput) {
+      if (p === 'ollama') { baseUrlInput.placeholder = 'http://host.docker.internal:11434'; baseUrlInput.value = 'http://host.docker.internal:11434'; }
+      else if (p === 'custom') { baseUrlInput.placeholder = 'https://your-provider.com/v1'; baseUrlInput.value = ''; }
+    }
+    if (baseUrlLabel) baseUrlLabel.textContent = p === 'ollama' ? 'Ollama URL' : 'Base URL';
+
+    const placeholders = { openai: 'sk-...', gemini: 'AIza...', mistral: 'api-key...', voyage: 'pa-...', openrouter: 'sk-or-...', ollama: 'Not needed for Ollama', custom: 'API key (if required)' };
+    const descriptions = {
+      openai: 'Enter your OpenAI API key. Stored locally in your PostgreSQL database.',
+      gemini: 'Enter your Google AI API key. Get one at aistudio.google.com.',
+      mistral: 'Enter your Mistral API key. Get one at console.mistral.ai.',
+      voyage: 'Enter your Voyage AI API key. Get one at dash.voyageai.com.',
+      openrouter: 'Enter your OpenRouter API key. Pay-per-use, no subscription needed.',
+      ollama: 'Ollama runs locally — no API key needed. Make sure Ollama is running on your machine.',
+      custom: 'Enter the API key for your OpenAI-compatible provider. Set the base URL and model below.',
+    };
+
     if (keyInput) {
-      if (p === 'ollama') { keyInput.placeholder = 'Not needed for Ollama'; keyInput.value = ''; }
-      else if (p === 'openrouter') { keyInput.placeholder = 'sk-or-...'; }
-      else { keyInput.placeholder = 'sk-...'; }
+      if (p === 'ollama') { keyInput.placeholder = placeholders[p]; keyInput.value = ''; }
+      else { keyInput.placeholder = placeholders[p] || 'API key...'; }
     }
-    if (keyDesc) {
-      if (p === 'ollama') keyDesc.textContent = 'Ollama runs locally — no API key needed. Make sure Ollama is running on your machine.';
-      else if (p === 'openrouter') keyDesc.textContent = 'Enter your OpenRouter API key. Pay-per-use, no subscription needed.';
-      else keyDesc.textContent = 'Enter your OpenAI API key. This is stored locally in your PostgreSQL database.';
-    }
+    if (keyDesc) keyDesc.textContent = descriptions[p] || 'Enter your API key. Stored locally in your PostgreSQL database.';
   };
 
   window.testOnboardingProvider = async () => {

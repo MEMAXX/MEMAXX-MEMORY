@@ -16,6 +16,11 @@ const DB_PATH = join(CONFIG_DIR, "memories.db");
 const EMBEDDING_DIMS = {
   "openai:text-embedding-3-small": 1536,
   "openai:text-embedding-3-large": 3072,
+  "gemini:text-embedding-004": 768,
+  "mistral:mistral-embed": 1024,
+  "voyage:voyage-3-lite": 512,
+  "voyage:voyage-3": 1024,
+  "voyage:voyage-code-3": 1024,
   "openrouter:openai/text-embedding-3-small": 1536,
   "openrouter:openai/text-embedding-3-large": 3072,
   "ollama:nomic-embed-text": 768,
@@ -28,6 +33,9 @@ const EMBEDDING_DIMS = {
 /** Default models per provider */
 const DEFAULT_MODELS = {
   openai: "text-embedding-3-small",
+  gemini: "text-embedding-004",
+  mistral: "mistral-embed",
+  voyage: "voyage-3-lite",
   openrouter: "openai/text-embedding-3-small",
   ollama: "nomic-embed-text",
 };
@@ -35,6 +43,9 @@ const DEFAULT_MODELS = {
 /** Default API URLs */
 const PROVIDER_URLS = {
   openai: "https://api.openai.com/v1",
+  gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
+  mistral: "https://api.mistral.ai/v1",
+  voyage: "https://api.voyageai.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
   ollama: "http://localhost:11434",
 };

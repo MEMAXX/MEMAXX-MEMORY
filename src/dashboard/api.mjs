@@ -842,18 +842,26 @@ export async function testProviderConnection(params, query_, body) {
 
   const urls = {
     openai: "https://api.openai.com/v1",
+    gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
+    mistral: "https://api.mistral.ai/v1",
+    voyage: "https://api.voyageai.com/v1",
     openrouter: "https://openrouter.ai/api/v1",
     ollama: base_url || "http://localhost:11434",
+    custom: base_url || "",
   };
 
   const models = {
     openai: model || "text-embedding-3-small",
+    gemini: model || "text-embedding-004",
+    mistral: model || "mistral-embed",
+    voyage: model || "voyage-3-lite",
     openrouter: model || "openai/text-embedding-3-small",
     ollama: model || "nomic-embed-text",
+    custom: model || "text-embedding-3-small",
   };
 
   const testUrl = base_url || urls[provider];
-  if (!testUrl) return { error: "Unknown provider", status: 400 };
+  if (!testUrl) return { error: "Unknown provider or missing base URL", status: 400 };
 
   try {
     let res;

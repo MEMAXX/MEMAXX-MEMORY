@@ -1,6 +1,6 @@
 /**
  * Multi-provider embedding client.
- * Supports OpenAI, OpenRouter, and Ollama.
+ * Supports OpenAI, Gemini, Mistral, Voyage, OpenRouter, Ollama, and any OpenAI-compatible provider.
  */
 
 /** @type {Map<string, { embedding: Float32Array, ts: number }>} */

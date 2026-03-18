@@ -82,6 +82,8 @@ function buildConfigFromEnv() {
   const llmProvider = process.env.LLM_PROVIDER || provider;
   const llmDefaults = {
     openai: "gpt-4o-mini",
+    gemini: "gemini-2.0-flash",
+    mistral: "mistral-small-latest",
     openrouter: "anthropic/claude-3.5-haiku",
     ollama: "llama3.2",
   };
