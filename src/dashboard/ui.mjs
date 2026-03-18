@@ -321,11 +321,12 @@ body {
   border: 1px solid var(--tp-border);
   border-radius: var(--radius);
   padding: 20px;
-  transition: border-color 100ms;
+  transition: border-color 150ms, box-shadow 150ms;
 }
 
 .card:hover {
   border-color: var(--tp-border-hover);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
 }
 
 .card-title {
@@ -1034,6 +1035,138 @@ body {
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hidden { display: none !important; }
 
+/* Focus rings for accessibility */
+:focus-visible {
+  outline: 2px solid var(--tp-purple);
+  outline-offset: 2px;
+}
+
+/* Stat card colored left border */
+.stat-card {
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 12px 0 0 12px;
+}
+.stat-card.stat-purple::before { background: var(--tp-purple); }
+.stat-card.stat-blue::before { background: var(--tp-info); }
+.stat-card.stat-green::before { background: var(--tp-success); }
+.stat-card.stat-red::before { background: var(--tp-error); }
+
+/* Memory card improvements */
+.memory-card {
+  transition: border-color 150ms, box-shadow 150ms, transform 100ms;
+}
+.memory-card:hover {
+  border-color: var(--tp-border-hover);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+  transform: translateY(-1px);
+}
+
+/* Postmortem expand indicator */
+.postmortem-card .expand-hint {
+  font-size: 10px;
+  color: var(--tp-text-muted);
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 150ms;
+}
+.postmortem-card:hover .expand-hint { color: var(--tp-text-secondary); }
+.postmortem-card .expand-chevron {
+  display: inline-block;
+  transition: transform 200ms;
+  font-size: 12px;
+}
+.postmortem-card.expanded .expand-chevron { transform: rotate(90deg); }
+
+/* Nav item relative for active indicator */
+.nav-item { position: relative; }
+
+/* Better active nav highlight */
+.nav-item.active {
+  background: var(--tp-purple-dim);
+  color: var(--tp-purple);
+}
+.nav-item.active::before {
+  background: var(--tp-purple);
+}
+
+/* Smooth page transitions */
+#content { transition: opacity 100ms; }
+
+/* Graph node glow on hover */
+.graph-node:hover circle {
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+/* Improve task checkbox hover */
+.task-checkbox:hover {
+  border-color: var(--tp-purple);
+}
+
+/* Section title subtle line */
+.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--tp-border);
+  margin-left: 12px;
+}
+
+/* Better empty state */
+.empty-state {
+  border: 1px dashed var(--tp-border);
+  border-radius: var(--radius);
+  background: var(--tp-surface);
+}
+
+/* Card value counter animation */
+@keyframes countUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.card-value { animation: countUp 300ms ease-out; }
+
+/* Pill-style tags */
+.tag {
+  border-radius: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--tp-border);
+  background: transparent;
+}
+.tag:hover { border-color: var(--tp-border-hover); color: var(--tp-text); }
+
+/* Graph panel slide-in */
+.graph-panel {
+  transform: translateX(100%);
+  transition: transform 200ms ease;
+}
+.graph-panel.open {
+  display: block;
+  transform: translateX(0);
+}
+
+/* Thinking sequence card styling */
+.thinking-card {
+  background: var(--tp-surface);
+  border: 1px solid var(--tp-border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 150ms, box-shadow 150ms;
+}
+.thinking-card:hover {
+  border-color: var(--tp-border-hover);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+
 /* Mobile Menu */
 .mobile-menu {
   display: none;
@@ -1296,26 +1429,29 @@ async function renderOverview(el) {
       </div>
 
       <div class="stat-grid">
-        <div class="card">
+        <div class="card stat-card stat-purple" onclick="location.hash='#/memories'" style="cursor:pointer">
           <div class="stat-icon" style="background:var(--tp-purple-dim);color:var(--tp-purple)">&#x2B22;</div>
           <div class="card-title">Memories</div>
           <div class="card-value">\${s.total_memories || 0}</div>
+          \${s.type_breakdown ? \`<div class="card-sub">\${Object.keys(s.type_breakdown).length} types</div>\` : ''}
         </div>
-        <div class="card">
+        <div class="card stat-card stat-blue" onclick="location.hash='#/graph'" style="cursor:pointer">
           <div class="stat-icon" style="background:rgba(59,130,246,0.12);color:var(--tp-info)">&#x2B21;</div>
           <div class="card-title">Entities</div>
           <div class="card-value">\${s.total_entities || 0}</div>
+          <div class="card-sub">knowledge graph</div>
         </div>
-        <div class="card">
+        <div class="card stat-card stat-green" onclick="location.hash='#/tasks'" style="cursor:pointer">
           <div class="stat-icon" style="background:rgba(34,197,94,0.12);color:var(--tp-success)">&#x2713;</div>
           <div class="card-title">Tasks</div>
           <div class="card-value">\${s.total_tasks || 0}</div>
           <div class="card-sub">\${s.open_tasks || 0} open</div>
         </div>
-        <div class="card">
+        <div class="card stat-card stat-red" onclick="location.hash='#/postmortems'" style="cursor:pointer">
           <div class="stat-icon" style="background:rgba(239,68,68,0.12);color:var(--tp-error)">&#x26A0;</div>
           <div class="card-title">Postmortems</div>
           <div class="card-value">\${s.total_postmortems || 0}</div>
+          <div class="card-sub">bug analyses</div>
         </div>
       </div>
 
@@ -1335,12 +1471,12 @@ async function renderOverview(el) {
 
       \${s.recent_memories && s.recent_memories.length ? \`
         <div class="section">
-          <div class="section-title">Recent Memories</div>
+          <div class="section-title">Recent Activity</div>
           \${s.recent_memories.map(m => \`
-            <div class="memory-card" onclick="location.hash='#/memories'">
+            <div class="memory-card" onclick="showMemoryDetail('\${m.id}')">
               <div class="memory-card-header">
                 \${typeBadge(m.type)}
-                <span class="text-xs text-muted">\${timeAgo(m.created_at)}</span>
+                <span class="text-xs text-muted" style="margin-left:auto">\${timeAgo(m.created_at)}</span>
               </div>
               <div class="memory-card-content">\${esc(m.content)}</div>
             </div>
@@ -1885,6 +2021,7 @@ async function renderPostmortems(el) {
             <span class="text-xs text-muted" style="margin-left:auto">\${timeAgo(pm.created_at)}</span>
           </div>
           <div class="text-xs text-secondary" style="margin-top:4px">\${esc(pm.description || '')}</div>
+          <div class="expand-hint"><span class="expand-chevron">&#x25B6;</span> Click to expand details</div>
           <div class="postmortem-section" style="display:none">
             <div class="postmortem-section-title">Root Cause</div>
             <div class="text-xs text-secondary">\${esc(pm.root_cause || 'Not documented')}</div>
@@ -1910,9 +2047,12 @@ async function renderPostmortems(el) {
     // Toggle expanded sections
     el.querySelectorAll('.postmortem-card').forEach(card => {
       card.addEventListener('click', () => {
+        const expanded = card.classList.contains('expanded');
         card.querySelectorAll('.postmortem-section').forEach(s => {
-          s.style.display = s.style.display === 'none' ? 'block' : 'none';
+          s.style.display = expanded ? 'block' : 'none';
         });
+        const hint = card.querySelector('.expand-hint');
+        if (hint) hint.style.display = expanded ? 'none' : 'flex';
       });
     });
   } catch (e) {
