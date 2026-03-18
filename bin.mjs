@@ -706,6 +706,11 @@ async function startHttpServer() {
     const defs = [
       ["GET", "/api/stats", wrapAsync(dashApi.getStats)],
       ["GET", "/api/memories", wrapAsync(dashApi.getMemories)],
+      ["POST", "/api/memories", wrapAsync(dashApi.storeMemory)],
+      ["DELETE", "/api/memories/:id", wrapAsync(dashApi.deleteMemory)],
+      ["PATCH", "/api/memories/:id", wrapAsync(dashApi.modifyMemory)],
+      ["POST", "/api/memories/search", wrapAsync(dashApi.searchMemoriesRest)],
+      ["GET", "/api/memories/usage", wrapAsync(dashApi.getMemoryUsage)],
       ["GET", "/api/memories/:id", wrapAsync(dashApi.getMemory)],
       ["GET", "/api/memories/:id/detail", wrapAsync(dashApi.getMemoryDetail)],
       ["GET", "/api/graph", wrapAsync(dashApi.getGraph)],

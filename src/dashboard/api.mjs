@@ -171,6 +171,122 @@ export async function getMemory(params, query_, body, projectHash) {
   };
 }
 
+// ── Memory CRUD (for desktop app) ────────────────────────────────────
+
+export async function storeMemory(params, query_, body, projectHash) {
+  if (!body?.content || body.content.trim().length < 10) {
+    return { error: "Content too short (min 10 chars)", status: 400 };
+  }
+
+  const id = generateId();
+  const hash = contentHash(body.content);
+
+  // Dedup check
+  const { rows: existing } = await query(
+    "SELECT id FROM memories WHERE project_hash = $1 AND content_hash = $2",
+    [projectHash, hash]
+  );
+  if (existing[0]) return { id: existing[0].id, deduplicated: true };
+
+  const tags = JSON.stringify(body.tags || []);
+  const relatedFiles = JSON.stringify(body.related_files || []);
+  const score = body.importance_score ?? 0.5;
+
+  await query(
+    `INSERT INTO memories (id, content, type, project_hash, importance_score, tags, related_files,
+       session_name, content_hash, is_archived, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE, NOW(), NOW())`,
+    [id, body.content.trim(), body.type || "learning", projectHash, score,
+     tags, relatedFiles, body.session_name || null, hash]
+  );
+
+  return { id, stored: true, importance_score: score };
+}
+
+export async function deleteMemory(params, query_, body, projectHash) {
+  const id = params.id;
+  if (!id) return { error: "Memory ID required", status: 400 };
+
+  await query(
+    "UPDATE memories SET is_archived = TRUE, updated_at = NOW() WHERE id = $1 AND project_hash = $2",
+    [id, projectHash]
+  );
+  return { deleted: true, id };
+}
+
+export async function modifyMemory(params, query_, body, projectHash) {
+  const id = params.id;
+  if (!id) return { error: "Memory ID required", status: 400 };
+
+  const updates = [];
+  const values = [];
+  let idx = 1;
+
+  const fields = { content: "content", type: "type", importance_score: "importance_score", session_name: "session_name" };
+  for (const [key, col] of Object.entries(fields)) {
+    if (body[key] !== undefined) {
+      updates.push(`${col} = $${idx}`);
+      values.push(body[key]);
+      idx++;
+    }
+  }
+  if (body.tags !== undefined) { updates.push(`tags = $${idx}`); values.push(JSON.stringify(body.tags)); idx++; }
+  if (body.related_files !== undefined) { updates.push(`related_files = $${idx}`); values.push(JSON.stringify(body.related_files)); idx++; }
+
+  if (updates.length === 0) return { error: "No fields to update", status: 400 };
+
+  updates.push("updated_at = NOW()");
+  values.push(id, projectHash);
+
+  await query(
+    `UPDATE memories SET ${updates.join(", ")} WHERE id = $${idx} AND project_hash = $${idx + 1}`,
+    values
+  );
+
+  const { rows } = await query("SELECT * FROM memories WHERE id = $1", [id]);
+  if (!rows[0]) return { error: "Memory not found", status: 404 };
+
+  return { ...rows[0], tags: safeParseJson(rows[0].tags, []), related_files: safeParseJson(rows[0].related_files, []) };
+}
+
+export async function searchMemoriesRest(params, query_, body, projectHash) {
+  const q = body?.query || query_?.q || "";
+  const limit = Math.min(parseInt(body?.limit || query_?.limit || "20"), 100);
+  const type = body?.memory_type || query_?.type || null;
+
+  if (!q) return { results: [], total: 0 };
+
+  let sql = `SELECT id, content, type, importance_score, tags, related_files,
+             session_name, created_at, updated_at
+             FROM memories WHERE project_hash = $1 AND is_archived = FALSE AND content ILIKE $2`;
+  const sqlParams = [projectHash, `%${q}%`];
+  let idx = 3;
+
+  if (type) { sql += ` AND type = $${idx}`; sqlParams.push(type); idx++; }
+
+  sql += ` ORDER BY created_at DESC LIMIT $${idx}`;
+  sqlParams.push(limit);
+
+  const { rows } = await query(sql, sqlParams);
+  const results = rows.map(r => ({ ...r, tags: safeParseJson(r.tags, []), related_files: safeParseJson(r.related_files, []) }));
+  return { results, total: results.length };
+}
+
+export async function getMemoryUsage(params, query_, body, projectHash) {
+  const { rows } = await query(
+    "SELECT COUNT(*) as active FROM memories WHERE project_hash = $1 AND is_archived = FALSE", [projectHash]
+  );
+  const { rows: archived } = await query(
+    "SELECT COUNT(*) as c FROM memories WHERE project_hash = $1 AND is_archived = TRUE", [projectHash]
+  );
+  return {
+    plan: "selfhost",
+    active: parseInt(rows[0]?.active || 0),
+    archived: parseInt(archived[0]?.c || 0),
+    limits: { max_memories: -1, injection_per_request: -1, retention_days: -1, cross_project: true, mcp_access: true, passive_extraction: true, memory_export: true },
+  };
+}
+
 // ── Knowledge Graph ──────────────────────────────────────────────────
 
 export async function getGraph(params, query_, body, projectHash) {

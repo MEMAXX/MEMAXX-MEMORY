@@ -35,6 +35,11 @@ import {
   getProviderConfig,
   saveProviderConfig,
   testProviderConnection,
+  storeMemory,
+  deleteMemory,
+  modifyMemory,
+  searchMemoriesRest,
+  getMemoryUsage,
 } from "./api.mjs";
 
 // ── Allowed Host headers (DNS rebinding protection) ──────────────────
@@ -86,6 +91,11 @@ function buildRoutes(embeddingConfig, onboarding = false) {
     // API routes
     ["GET", "/api/stats", wrapAsync(getStats)],
     ["GET", "/api/memories", wrapAsync(getMemories)],
+    ["POST", "/api/memories", wrapAsync(storeMemory)],
+    ["DELETE", "/api/memories/:id", wrapAsync(deleteMemory)],
+    ["PATCH", "/api/memories/:id", wrapAsync(modifyMemory)],
+    ["POST", "/api/memories/search", wrapAsync(searchMemoriesRest)],
+    ["GET", "/api/memories/usage", wrapAsync(getMemoryUsage)],
     ["GET", "/api/memories/:id", wrapAsync(getMemory)],
     ["GET", "/api/graph", wrapAsync(getGraph)],
     ["GET", "/api/graph/explore/:name", wrapAsync(getGraphExplore)],
