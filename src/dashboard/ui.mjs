@@ -34,6 +34,9 @@ export function renderPage(opts = {}) {
           <span class="logo-text">MEMAXX<span class="logo-sub">Memory</span></span>
         </div>
       </div>
+      <div id="project-switcher" class="nav-section" style="display:none;padding:0 12px">
+        <div class="nav-label">Project</div>
+      </div>
       <div class="nav-section">
         <div class="nav-label">General</div>
         <a class="nav-item" href="#/" data-page="overview">
@@ -1103,6 +1106,8 @@ function JS(opts) {
 const API = '';
 let currentPage = '';
 let graphInstance = null;
+let activeProject = null; // { project_hash, memory_count, ... }
+let allProjects = [];
 
 // ── Router ───────────────────────────────────────────────────────────
 
@@ -1155,19 +1160,41 @@ window.addEventListener('load', async () => {
       }
     }
   } catch { /* ignore */ }
+
+  // Load projects and set active project to most recent
+  try {
+    const resp = await (await fetch('/api/projects')).json();
+    allProjects = resp.projects || [];
+    if (allProjects.length > 0) {
+      activeProject = allProjects[0]; // most recent by last_memory
+      renderProjectSwitcher();
+    }
+  } catch { /* ignore */ }
+
   navigate();
 });
 
 // ── API Helpers ──────────────────────────────────────────────────────
 
 async function api(path) {
+  // Auto-inject active project hash into API calls
+  if (activeProject && !path.includes('project=') && !path.includes('/api/projects') && !path.includes('/api/provider')) {
+    const sep = path.includes('?') ? '&' : '?';
+    path = path + sep + 'project=' + activeProject.project_hash;
+  }
   const res = await fetch(API + path);
   if (!res.ok) throw new Error(res.statusText);
   return res.json();
 }
 
+function withProject(path) {
+  if (!activeProject || path.includes('project=') || path.includes('/api/projects') || path.includes('/api/provider')) return path;
+  const sep = path.includes('?') ? '&' : '?';
+  return path + sep + 'project=' + activeProject.project_hash;
+}
+
 async function apiPost(path, body) {
-  const res = await fetch(API + path, {
+  const res = await fetch(API + withProject(path), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -1176,7 +1203,7 @@ async function apiPost(path, body) {
 }
 
 async function apiPatch(path, body) {
-  const res = await fetch(API + path, {
+  const res = await fetch(API + withProject(path), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -1185,8 +1212,25 @@ async function apiPatch(path, body) {
 }
 
 async function apiDelete(path) {
-  const res = await fetch(API + path, { method: 'DELETE' });
+  const res = await fetch(API + withProject(path), { method: 'DELETE' });
   return res.json();
+}
+
+function renderProjectSwitcher() {
+  const container = document.getElementById('project-switcher');
+  if (!container || allProjects.length === 0) return;
+  const opts = allProjects.map(p =>
+    '<option value="' + p.project_hash + '"' + (activeProject && activeProject.project_hash === p.project_hash ? ' selected' : '') + '>'
+    + esc(p.project_name || p.project_hash.slice(0, 8)) + ' (' + p.memory_count + ')'
+    + '</option>'
+  ).join('');
+  container.innerHTML = '<select id="project-select" style="width:100%;padding:6px 8px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:12px">' + opts + '</select>';
+  container.style.display = 'block';
+  document.getElementById('project-select').addEventListener('change', (e) => {
+    activeProject = allProjects.find(p => p.project_hash === e.target.value) || allProjects[0];
+    currentPage = ''; // force re-render
+    navigate();
+  });
 }
 
 function timeAgo(dateStr) {

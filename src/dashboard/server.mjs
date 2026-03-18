@@ -298,12 +298,15 @@ function resolveProjectHash(query) {
   // Allow override via ?project= query param
   if (query.project) return query.project;
 
-  // Use cached value
+  // Use cached value from most recent project
   if (_cachedProjectHash) return _cachedProjectHash;
 
+  // In Docker/self-hosted mode, cwd is /app which is meaningless.
+  // Return a placeholder that will be replaced by the dashboard UI
+  // using the actual project hash from /api/projects.
+  // This fallback ensures API calls without ?project= still work
+  // by matching the container's project.json.
   const root = process.cwd();
-
-  // Priority 1: Read .memaxx/project.json (same as bin.mjs/tools.mjs)
   try {
     const projectJson = JSON.parse(readFileSync(join(root, ".memaxx", "project.json"), "utf-8"));
     if (projectJson.id) {
@@ -312,7 +315,6 @@ function resolveProjectHash(query) {
     }
   } catch { /* no project.json */ }
 
-  // Priority 2: DJB2 hash of cwd (fallback)
   let hash = 5381;
   const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "");
   for (let i = 0; i < normalized.length; i++) {
