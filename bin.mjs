@@ -548,6 +548,20 @@ async function startHttpServer() {
   let dashApi;
   try {
     dashApi = await import("./src/dashboard/api.mjs");
+
+    // Register config reload hook — when provider config is saved via dashboard,
+    // reload from DB and update the running server's embedding/LLM config
+    dashApi.setOnConfigSaved(async () => {
+      try {
+        const dbConfig = await dashApi.loadProviderConfigFromDb();
+        if (dbConfig?.embedding?.provider) {
+          setConfigs(dbConfig.embedding, dbConfig.llm);
+          log(`Config reloaded: embedding=${dbConfig.embedding.provider}, llm=${dbConfig.llm?.provider || 'none'}`);
+        }
+      } catch (err) {
+        log(`Config reload failed: ${err.message}`);
+      }
+    });
   } catch (err) {
     log(`Dashboard API not available: ${err.message}`);
   }

@@ -9,6 +9,10 @@ import { searchMemories as hybridSearch } from "../search.mjs";
 import { readConfig } from "../config.mjs";
 import { copyFileSync, statSync } from "node:fs";
 
+// ── Config reload hook (set by bin.mjs to reload after save) ────────
+let _onConfigSaved = null;
+export function setOnConfigSaved(fn) { _onConfigSaved = fn; }
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function safeParseJson(val, fallback) {
@@ -835,6 +839,11 @@ export async function saveProviderConfig(params, query_, body) {
       );
       saved++;
     }
+  }
+
+  // Reload running config from DB
+  if ((saved > 0 || deleted > 0) && _onConfigSaved) {
+    try { await _onConfigSaved(); } catch { /* ignore */ }
   }
 
   return { success: true, saved, deleted };
