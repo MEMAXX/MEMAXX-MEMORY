@@ -88,7 +88,7 @@ export function renderPage(opts = {}) {
       </div>
     </main>
   </div>
-  ${opts.onboarding ? '<div id="onboarding-overlay"></div>' : ''}
+  <div id="onboarding-overlay"></div>
   <script nonce="${nonce}">${JS(opts)}</script>
 </body>
 </html>`;
@@ -1132,9 +1132,18 @@ function navigate() {
 }
 
 window.addEventListener('hashchange', navigate);
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
   navigate();
-  ${opts.onboarding ? 'showOnboarding();' : ''}
+  // Auto-show onboarding if no provider configured
+  try {
+    const provRes = await fetch('/api/provider');
+    if (provRes.ok) {
+      const prov = await provRes.json();
+      if (!prov.embedding_provider && !prov._env_embedding_provider) {
+        showOnboarding();
+      }
+    }
+  } catch { /* ignore */ }
 });
 
 // ── API Helpers ──────────────────────────────────────────────────────
@@ -2211,10 +2220,13 @@ window.importData = async (input) => {
 
 // ── Onboarding ───────────────────────────────────────────────────────
 
-${opts.onboarding ? `
 function showOnboarding() {
-  const overlay = document.getElementById('onboarding-overlay');
-  if (!overlay) return;
+  let overlay = document.getElementById('onboarding-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'onboarding-overlay';
+    document.body.appendChild(overlay);
+  }
 
   let step = 0;
   const steps = [
@@ -2223,48 +2235,75 @@ function showOnboarding() {
       title: 'Welcome to MEMAXX Memory',
       content: \`
         <div class="onboarding-desc">
-          Your AI now has persistent memory. Every insight, decision, and bug fix is stored locally
-          on your machine and available across all future sessions.
+          Persistent AI memory for your coding assistants. Every decision, bug fix, and pattern &mdash;
+          remembered across sessions, forever.
         </div>
-        <div class="onboarding-check"><div class="check-icon check-ok">&#x2713;</div> Database created &amp; ready</div>
-        <div class="onboarding-check"><div class="check-icon check-ok">&#x2713;</div> Embedding provider connected</div>
-        <div class="onboarding-check"><div class="check-icon check-ok">&#x2713;</div> 100% local &mdash; your data stays on your machine</div>
+        <div class="onboarding-check"><div class="check-icon check-ok">&#x2713;</div> PostgreSQL + pgvector ready</div>
+        <div class="onboarding-check"><div class="check-icon check-ok">&#x2713;</div> 33 MCP tools available</div>
+        <div class="onboarding-check"><div class="check-icon check-ok">&#x2713;</div> 100% self-hosted &mdash; your data stays here</div>
+        <div class="onboarding-desc" style="margin-top:16px;font-size:12px;color:var(--tp-text-secondary)">
+          Let's configure your embedding provider so MEMAXX can store and search memories semantically.
+        </div>
       \`
     },
-    // Step 1: How it works
+    // Step 1: Choose Provider
     {
-      title: 'How It Works',
+      title: 'Choose Embedding Provider',
       content: \`
         <div class="onboarding-desc">
-          MEMAXX Memory runs as an MCP server alongside your AI coding tool.
-          It automatically stores and retrieves relevant context.
+          MEMAXX needs an embedding provider to convert memories into vectors for semantic search.
+          Pick one below:
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0">
-          <div class="card">
-            <div class="card-title">&#x1F4BE; Store</div>
-            <div class="text-xs text-secondary">Decisions, bugs, patterns, and learnings are saved with semantic embeddings</div>
-          </div>
-          <div class="card">
-            <div class="card-title">&#x1F50D; Search</div>
-            <div class="text-xs text-secondary">Hybrid search combines semantic, full-text, and graph-based retrieval</div>
-          </div>
-          <div class="card">
-            <div class="card-title">&#x1F578; Graph</div>
-            <div class="text-xs text-secondary">Entities and relationships are extracted to build a knowledge graph</div>
-          </div>
-          <div class="card">
-            <div class="card-title">&#x1F4A1; Learn</div>
-            <div class="text-xs text-secondary">Patterns gain confidence over time and get promoted to rules</div>
-          </div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin:16px 0">
+          <label class="onboarding-radio" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--tp-border);cursor:pointer;transition:border-color 0.2s" onclick="selectProvider('openai')">
+            <input type="radio" name="ob-provider" value="openai" checked style="accent-color:var(--tp-purple)"/>
+            <div>
+              <div style="font-weight:600;font-size:14px">OpenAI</div>
+              <div class="text-xs text-secondary">text-embedding-3-small (1536 dims) &mdash; recommended</div>
+            </div>
+          </label>
+          <label class="onboarding-radio" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--tp-border);cursor:pointer;transition:border-color 0.2s" onclick="selectProvider('openrouter')">
+            <input type="radio" name="ob-provider" value="openrouter" style="accent-color:var(--tp-purple)"/>
+            <div>
+              <div style="font-weight:600;font-size:14px">OpenRouter</div>
+              <div class="text-xs text-secondary">Same models, pay-per-use &mdash; no monthly commitment</div>
+            </div>
+          </label>
+          <label class="onboarding-radio" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;border:1px solid var(--tp-border);cursor:pointer;transition:border-color 0.2s" onclick="selectProvider('ollama')">
+            <input type="radio" name="ob-provider" value="ollama" style="accent-color:var(--tp-purple)"/>
+            <div>
+              <div style="font-weight:600;font-size:14px">Ollama (100% local)</div>
+              <div class="text-xs text-secondary">nomic-embed-text &mdash; free, no API key needed</div>
+            </div>
+          </label>
         </div>
       \`
     },
-    // Step 2: Connect your AI tool
+    // Step 2: API Key + Test
+    {
+      title: 'Enter API Key',
+      content: \`
+        <div class="onboarding-desc" id="ob-key-desc">
+          Enter your OpenAI API key. This is stored locally in your PostgreSQL database &mdash; never sent anywhere except the provider.
+        </div>
+        <div style="margin:16px 0">
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">API Key</label>
+          <input id="ob-api-key" type="password" placeholder="sk-..." style="width:100%;padding:10px 12px;border-radius:10px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:14px;box-sizing:border-box;outline:none" />
+        </div>
+        <div id="ob-ollama-url" style="display:none;margin:12px 0">
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--tp-text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Ollama URL</label>
+          <input id="ob-base-url" type="text" placeholder="http://host.docker.internal:11434" value="http://host.docker.internal:11434" style="width:100%;padding:10px 12px;border-radius:10px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:14px;box-sizing:border-box;outline:none" />
+        </div>
+        <button class="btn btn-secondary" style="width:100%;margin:8px 0" onclick="testOnboardingProvider()">Test Connection</button>
+        <div id="ob-test-status" style="font-size:13px;text-align:center;min-height:24px;margin-top:4px"></div>
+      \`
+    },
+    // Step 3: MCP Config
     {
       title: 'Connect Your AI Tool',
       content: \`
         <div class="onboarding-desc">
-          Add MEMAXX to your AI tool's MCP configuration. Pick your tool below and copy the config:
+          Add this to your AI tool's MCP config. Works with Claude Code, Cursor, Windsurf, and any MCP client.
         </div>
         <div style="margin-bottom:8px">
           <div class="flex gap-2 mb-2" style="margin-bottom:12px">
@@ -2296,56 +2335,58 @@ function showOnboarding() {
         </div>
       \`
     },
-    // Step 3: AI System Prompt
+    // Step 4: System Prompt
     {
       title: 'AI System Prompt',
       content: \`
         <div class="onboarding-desc">
-          Copy this into your project's <strong>CLAUDE.md</strong> (or equivalent system prompt file).
-          It teaches your AI to use MEMAXX Memory correctly &mdash; searching before changes, storing after tasks, running postmortems after bugs.
+          Copy this into your project's <strong>CLAUDE.md</strong> so your AI uses all 33 MCP tools correctly:
+          searching before changes, storing after tasks, running postmortems after bugs.
         </div>
-        <div class="code-block" style="max-height:280px;overflow-y:auto;font-size:11px;line-height:1.5;white-space:pre-wrap" id="system-prompt-block">## MEMAXX Memory &mdash; MANDATORY
-
-You MUST use MEMAXX Memory (MCP tools prefixed mcp__memaxx-memory__) throughout every session.
+        <div class="code-block" style="max-height:220px;overflow-y:auto;font-size:11px;line-height:1.5;white-space:pre-wrap">## MEMAXX Memory &mdash; MANDATORY
 
 ### HARD RULES
-1. FIRST action in every session: Call memory_init
-2. BEFORE every code change: Call memory_search
-3. AFTER every completed task: Call memory_store
-4. BEFORE fixing any bug: Call memory_postmortem_warnings
-5. AFTER fixing any bug: Call memory_postmortem
-6. Minimum 3 memory operations per session
+1. FIRST action: memory_init
+2. BEFORE code changes: memory_search
+3. AFTER tasks: memory_store
+4. BEFORE bug fix: memory_postmortem_warnings
+5. AFTER bug fix: memory_postmortem
 
-### Session Lifecycle
-START: memory_init
-DURING: Search before decisions, store after outcomes
-END: Store a progress memory
+### Key Tools (33 total)
+memory_init, memory_store, memory_search, smart_context,
+memory_graph_explore, memory_postmortem, memory_tasks,
+memory_start_thinking, memory_upload_document...
 
-### Key Tools
-- memory_init, memory_store, memory_search
-- memory_postmortem, memory_postmortem_warnings
-- memory_graph_explore, memory_graph_stats
-- smart_context (single-call context retrieval)
-- memory_tasks (create/get/complete)
-
-Full prompt: github.com/MEMAXX/MEMAXX-MEMORY/SYSTEM_PROMPT.md<button class="copy-btn" onclick="copySystemPrompt(this)">Copy Full Prompt</button></div>
-        <div class="text-xs text-secondary" style="margin-top:8px">
-          The full system prompt is in <strong>SYSTEM_PROMPT.md</strong> in the repo. Click "Copy Full Prompt" to copy the complete version.
-        </div>
+Full prompt: SYSTEM_PROMPT.md in the repo<button class="copy-btn" onclick="copySystemPrompt(this)">Copy Full Prompt</button></div>
       \`
     },
-    // Step 4: Done
+    // Step 5: Done
     {
       title: "You're All Set!",
       content: \`
         <div class="onboarding-desc">
-          Your AI memory is ready. Start coding and your AI assistant will automatically
-          remember everything important.
+          MEMAXX Memory is configured and ready. Your AI will now remember everything.
         </div>
-        <div style="text-align:center;margin:24px 0">
+        <div style="text-align:center;margin:20px 0">
           <div style="font-size:48px;margin-bottom:12px">&#x1F680;</div>
-          <div style="font-size:15px;font-weight:500;color:var(--tp-text)">Explore the dashboard</div>
-          <div class="text-xs text-secondary mt-2">Browse memories, visualize your knowledge graph, and track tasks</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0">
+          <div class="card" style="text-align:center;padding:14px">
+            <div style="font-size:13px;font-weight:600;color:var(--tp-text)">33 MCP Tools</div>
+            <div class="text-xs text-secondary">Search, store, graph, postmortems</div>
+          </div>
+          <div class="card" style="text-align:center;padding:14px">
+            <div style="font-size:13px;font-weight:600;color:var(--tp-text)">Knowledge Graph</div>
+            <div class="text-xs text-secondary">Entities + relations, bi-temporal</div>
+          </div>
+          <div class="card" style="text-align:center;padding:14px">
+            <div style="font-size:13px;font-weight:600;color:var(--tp-text)">Smart Context</div>
+            <div class="text-xs text-secondary">Auto-detects what you need</div>
+          </div>
+          <div class="card" style="text-align:center;padding:14px">
+            <div style="font-size:13px;font-weight:600;color:var(--tp-text)">Pattern Learning</div>
+            <div class="text-xs text-secondary">RL-based confidence scoring</div>
+          </div>
         </div>
       \`
     }
@@ -2373,7 +2414,66 @@ Full prompt: github.com/MEMAXX/MEMAXX-MEMORY/SYSTEM_PROMPT.md<button class="copy
 
   window.onboardingNext = () => { if (step < steps.length - 1) { step++; render(); } };
   window.onboardingPrev = () => { if (step > 0) { step--; render(); } };
-  window.closeOnboarding = () => { overlay.remove(); };
+  window.closeOnboarding = async () => {
+    // Save provider config before closing if user configured one
+    const provider = window._obProvider;
+    const key = document.getElementById('ob-api-key')?.value;
+    const baseUrl = document.getElementById('ob-base-url')?.value;
+    if (provider && (key || provider === 'ollama')) {
+      const body = { embedding_provider: provider };
+      if (key) body.embedding_api_key = key;
+      if (baseUrl && provider === 'ollama') body.embedding_base_url = baseUrl;
+      try { await fetch('/api/provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); } catch {}
+    }
+    overlay.remove();
+  };
+
+  window._obProvider = 'openai';
+  window.selectProvider = (p) => {
+    window._obProvider = p;
+    const ollamaUrl = document.getElementById('ob-ollama-url');
+    const keyDesc = document.getElementById('ob-key-desc');
+    const keyInput = document.getElementById('ob-api-key');
+    if (ollamaUrl) ollamaUrl.style.display = p === 'ollama' ? 'block' : 'none';
+    if (keyInput) {
+      if (p === 'ollama') { keyInput.placeholder = 'Not needed for Ollama'; keyInput.value = ''; }
+      else if (p === 'openrouter') { keyInput.placeholder = 'sk-or-...'; }
+      else { keyInput.placeholder = 'sk-...'; }
+    }
+    if (keyDesc) {
+      if (p === 'ollama') keyDesc.textContent = 'Ollama runs locally — no API key needed. Make sure Ollama is running on your machine.';
+      else if (p === 'openrouter') keyDesc.textContent = 'Enter your OpenRouter API key. Pay-per-use, no subscription needed.';
+      else keyDesc.textContent = 'Enter your OpenAI API key. This is stored locally in your PostgreSQL database.';
+    }
+  };
+
+  window.testOnboardingProvider = async () => {
+    const status = document.getElementById('ob-test-status');
+    if (!status) return;
+    status.textContent = 'Testing...';
+    status.style.color = 'var(--tp-text-secondary)';
+    const provider = window._obProvider;
+    const key = document.getElementById('ob-api-key')?.value || '';
+    const baseUrl = document.getElementById('ob-base-url')?.value || '';
+    try {
+      const res = await fetch('/api/provider/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, api_key: key || 'none', base_url: baseUrl }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        status.innerHTML = '&#x2713; Connected! Embedding dimension: ' + data.dimension;
+        status.style.color = '#22c55e';
+      } else {
+        status.textContent = 'Failed: ' + (data.error || 'Unknown error');
+        status.style.color = '#ef4444';
+      }
+    } catch (e) {
+      status.textContent = 'Error: ' + e.message;
+      status.style.color = '#ef4444';
+    }
+  };
   window.showMcpConfig = (tool, btn) => {
     ['claude', 'cursor', 'windsurf'].forEach(t => {
       document.getElementById('mcp-config-' + t).style.display = t === tool ? 'block' : 'none';
@@ -2402,6 +2502,5 @@ Full prompt: github.com/MEMAXX/MEMAXX-MEMORY/SYSTEM_PROMPT.md<button class="copy
 
   render();
 }
-` : ''}
 `;
 }
