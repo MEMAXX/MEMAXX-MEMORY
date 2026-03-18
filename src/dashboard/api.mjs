@@ -6,7 +6,7 @@
 
 import { query, generateId, contentHash } from "../db.mjs";
 import { searchMemories as hybridSearch } from "../search.mjs";
-import { readConfig } from "../config.mjs";
+import { readConfig, DEFAULT_MODELS, PROVIDER_URLS, getEmbeddingDimension } from "../config.mjs";
 import { copyFileSync, statSync } from "node:fs";
 
 // ── Config reload hook (set by bin.mjs to reload after save) ────────
@@ -934,24 +934,31 @@ export async function loadProviderConfigFromDb() {
     const map = {};
     for (const r of rows) map[r.key] = r.value;
 
+    const embProvider = map.embedding_provider || null;
+    const embModel = map.embedding_model || (embProvider ? DEFAULT_MODELS[embProvider] : null) || 'text-embedding-3-small';
+    const embBaseUrl = map.embedding_base_url || (embProvider ? PROVIDER_URLS[embProvider] : null);
+    const embDim = embProvider ? getEmbeddingDimension(embProvider, embModel) : 1536;
+
     const config = {
       embedding: {
-        provider: map.embedding_provider || null,
+        provider: embProvider,
         api_key: map.embedding_api_key || null,
-        model: map.embedding_model || null,
-        base_url: map.embedding_base_url || null,
+        model: embModel,
+        base_url: embBaseUrl,
+        dimension: embDim,
       },
     };
 
     // LLM config — auto-inherit from embedding if not explicitly set
-    const llmProvider = map.llm_provider || map.embedding_provider || null;
+    const llmProvider = map.llm_provider || embProvider || null;
     if (llmProvider) {
       const llmDefaults = { openai: 'gpt-4o-mini', gemini: 'gemini-2.0-flash', mistral: 'mistral-small-latest', openrouter: 'anthropic/claude-3.5-haiku', ollama: 'llama3.2' };
+      const llmBaseUrl = map.llm_base_url || map.embedding_base_url || PROVIDER_URLS[llmProvider] || PROVIDER_URLS.openai;
       config.llm = {
         provider: llmProvider,
         api_key: map.llm_api_key || map.embedding_api_key || null,
         model: map.llm_model || llmDefaults[llmProvider] || 'gpt-4o-mini',
-        base_url: map.llm_base_url || map.embedding_base_url || null,
+        base_url: llmBaseUrl,
       };
     }
 
