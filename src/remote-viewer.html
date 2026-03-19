@@ -118,8 +118,10 @@ function render() {
   const tyOff = (cellH-sz)/2;
   ctx.textBaseline = 'top';
 
+  var renderCols = Math.min(s.cols, viewCols);
+  var renderRows = Math.min(s.rows, viewRows);
   for (const screenRow of s.dirty) {
-    if (screenRow<0 || screenRow>=s.rows) continue;
+    if (screenRow<0 || screenRow>=renderRows) continue;
     const line = screenRow<s.grid.length ? s.grid[screenRow] : null;
     const y = screenRow*cellH;
     ctx.fillStyle = rgb(DEF_BG[0],DEF_BG[1],DEF_BG[2]);
@@ -127,7 +129,7 @@ function render() {
     if (!line) continue;
 
     const batches = [[],[],[],[]];
-    for (let col=0; col<line.length && col<s.cols; col++) {
+    for (let col=0; col<line.length && col<renderCols; col++) {
       const cell = line[col]; const fl = cell.flags||0;
       if (fl&WIDE_SPACER) continue;
       const x = col*cellW;
@@ -275,11 +277,12 @@ function initCanvas(){
   cv=document.getElementById('cv');
   ctx=cv.getContext('2d',{alpha:false});
   if(/Mac|iPhone|iPad/.test(navigator.platform)) ctx.textRendering='geometricPrecision';
-  new ResizeObserver(function(){ sizeCanvas(); if(activePty) send({event:'terminal:resize', pty_id:activePty, payload:{cols:paneStates.get(activePty)?.cols||80, rows:paneStates.get(activePty)?.rows||24}}); }).observe(document.getElementById('wrap'));
+  new ResizeObserver(function(){ sizeCanvas(); }).observe(document.getElementById('wrap'));
   sizeCanvas();
   (function loop(){ render(); requestAnimationFrame(loop); })();
 }
 
+var viewCols=80, viewRows=24;
 function sizeCanvas(){
   if(!cv||!cellW) return;
   var wrap=document.getElementById('wrap');
@@ -287,10 +290,13 @@ function sizeCanvas(){
   var c=Math.floor(rect.width*DPR/cellW);
   var r=Math.floor(rect.height*DPR/cellH);
   if(c>0&&r>0){
+    viewCols=c; viewRows=r;
     cv.width=c*cellW; cv.height=r*cellH;
     cv.style.width=cv.width/DPR+'px'; cv.style.height=cv.height/DPR+'px';
+    // Send resize to producer so it sends correctly sized snapshots
+    if(activePty) send({event:'terminal:resize', pty_id:activePty, payload:{cols:c, rows:r}});
     // Mark active pane fully dirty for repaint
-    if (activePty) { var s=paneStates.get(activePty); if(s){s.dirty.clear();for(var i=0;i<s.rows;i++)s.dirty.add(i);} }
+    if (activePty) { var s=paneStates.get(activePty); if(s){s.dirty.clear();for(var i=0;i<Math.max(s.rows,r);i++)s.dirty.add(i);} }
   }
 }
 
