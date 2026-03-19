@@ -214,16 +214,7 @@ function renderTabs() {
     const isActive = pane.pty_id === activePty;
     if (isActive) btn.className = 'active';
     // Title: AI CLI name takes priority, then cwd folder, then shell, then generic
-    var title;
-    if (pane.aiCli) {
-      title = pane.aiCli.charAt(0).toUpperCase() + pane.aiCli.slice(1);
-    } else if (pane.paneTitle) {
-      title = pane.paneTitle;
-    } else if (pane.cwd) {
-      title = pane.cwd.split('/').filter(Boolean).pop() || pane.shellName || 'Terminal';
-    } else {
-      title = pane.shellName || ('Terminal '+(i+1));
-    }
+    var title = pane.paneTitle || pane.cwd.split('/').filter(Boolean).pop() || pane.shellName || ('Terminal '+(i+1));
     btn.innerHTML = '<span class="tdot '+(pane.isAlive?'alive':'dead')+'"></span><span style="overflow:hidden;text-overflow:ellipsis">' + escHtml(title) + '</span>';
     btn.onclick = function() { switchPane(pane.pty_id); };
     tabsEl.appendChild(btn);
