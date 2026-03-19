@@ -279,6 +279,7 @@ function connect(){
 function send(obj){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(obj)); }
 function sendKey(k){ if(mode==='interactive' && activePty) send({event:'terminal:write', pty_id:activePty, payload:{data:k}}); }
 
+var didInitialResize = false;
 function handle(msg){
   var ev = msg.event;
   if(ev==='session:info'){
@@ -324,7 +325,19 @@ function handle(msg){
         if (!activePty || !newIds.has(activePty)) {
           activePty = paneList.length > 0 ? paneList[0].pty_id : null;
         }
-        paneList.forEach(function(pane){ send({event:'terminal:request_snapshot', pty_id: pane.pty_id}); });
+        // On first meta: resize all panes to viewer dimensions so content fits mobile
+        if (!didInitialResize && viewCols > 0 && viewRows > 0) {
+          didInitialResize = true;
+          paneList.forEach(function(pane){
+            send({event:'terminal:resize', pty_id: pane.pty_id, payload:{cols:viewCols, rows:viewRows}});
+          });
+          // Request snapshots after PTY has resized
+          setTimeout(function(){
+            paneList.forEach(function(pane){ send({event:'terminal:request_snapshot', pty_id: pane.pty_id}); });
+          }, 500);
+        } else {
+          paneList.forEach(function(pane){ send({event:'terminal:request_snapshot', pty_id: pane.pty_id}); });
+        }
         renderTabs();
       }
       if (msg.payload.workspaces) {
