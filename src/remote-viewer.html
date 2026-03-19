@@ -159,14 +159,16 @@ function render() {
   var renderCols = Math.min(s.cols, viewCols);
   var renderRows = Math.min(s.rows, viewRows);
   var sbLen = s.scrollback.length;
+  // When grid is taller than viewport, offset to show the bottom (where cursor is)
+  var gridSkip = Math.max(0, s.rows - viewRows);
   var showCursor = s.sbOffset === 0;
   for (const screenRow of s.dirty) {
     if (screenRow<0 || screenRow>=renderRows) continue;
-    // Viewport: scrollback lines above, then grid lines
+    // Viewport: scrollback lines above, then grid lines (offset to bottom)
     var bufIdx = sbLen - s.sbOffset + screenRow;
     var line;
     if (bufIdx < sbLen) { line = s.scrollback[bufIdx] || null; }
-    else { var gridRow = bufIdx - sbLen; line = gridRow < s.grid.length ? s.grid[gridRow] : null; }
+    else { var gridRow = bufIdx - sbLen + gridSkip; line = gridRow < s.grid.length ? s.grid[gridRow] : null; }
     const y = screenRow*cellH;
     ctx.fillStyle = rgb(DEF_BG[0],DEF_BG[1],DEF_BG[2]);
     ctx.fillRect(0, y, cv.width, cellH);
@@ -180,8 +182,8 @@ function render() {
       let fg = cell.fg||DEF_FG, bg = cell.bg||null;
       if (fl&INVERSE) { const t=fg; fg=bg||DEF_BG; bg=t; }
       const isGridRow = bufIdx >= sbLen;
-      const gridRow = bufIdx - sbLen;
-      const isCur = showCursor && s.curVis && isGridRow && gridRow===s.curY && col===s.curX;
+      const gridRow2 = bufIdx - sbLen + gridSkip;
+      const isCur = showCursor && s.curVis && isGridRow && gridRow2===s.curY && col===s.curX;
       if (isCur) { bg=CURSOR_CLR; fg=DEF_BG; }
       if (bg) { ctx.fillStyle=rgb(bg[0],bg[1],bg[2]); ctx.fillRect(x,y,cellW,cellH); }
       const ch = cell.c;
