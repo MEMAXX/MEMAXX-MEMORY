@@ -457,7 +457,7 @@ document.getElementById('wrap').addEventListener('paste',function(e){
 // ── Mouse wheel scroll ──
 document.getElementById('wrap').addEventListener('wheel',function(e){
   e.preventDefault();
-  var delta = e.deltaY > 0 ? 3 : -3;
+  var delta = e.deltaY > 0 ? -3 : 3;
   scrollViewport(delta);
 },{passive:false});
 
