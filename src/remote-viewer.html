@@ -27,14 +27,14 @@ body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-seri
 #ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.85);color:#888;font-size:15px;flex-direction:column;gap:12px;z-index:5}
 .spin{width:24px;height:24px;border:2px solid #333;border-top-color:#A78BFA;border-radius:50%;animation:s .6s linear infinite}
 @keyframes s{to{transform:rotate(360deg)}}
-#keys{display:none;align-items:center;gap:2px;border-top:1px solid #222;background:#111;padding:4px 6px;flex-shrink:0}
-#keys button{display:flex;align-items:center;justify-content:center;height:34px;min-width:34px;padding:0 8px;border:none;border-radius:6px;background:#1a1a1a;color:#aaa;font:600 12px/1 monospace;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#keys{display:none;align-items:center;gap:1px;border-top:1px solid #222;background:#111;padding:4px 6px;flex-shrink:0}
+#keys button{display:flex;align-items:center;justify-content:center;height:28px;min-width:28px;padding:0 8px;border:none;border-radius:4px;background:#1a1a1a;color:#999;font:600 10px/1 monospace;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .1s,color .1s}
 #keys button:active{background:#A78BFA;color:#000}
-#keys .sep{width:1px;height:22px;background:#333;margin:0 2px;flex-shrink:0}
-#keys .ent{margin-left:auto;background:rgba(167,139,250,.15);color:#A78BFA;padding:0 16px}
+#keys .sep{width:1px;height:18px;background:#333;margin:0 3px;flex-shrink:0}
+#keys .ent{margin-left:auto;background:rgba(167,139,250,.15);color:#A78BFA;padding:0 16px;border-radius:4px}
 #keys .ent:active{background:#A78BFA;color:#000}
 #ibar{display:none;align-items:center;gap:6px;border-top:1px solid #222;background:#111;padding:6px 8px;flex-shrink:0}
-#ibar input{flex:1;border:1px solid #333;border-radius:6px;background:#000;color:#e5e5e5;font:14px monospace;padding:8px 10px;outline:none}
+#ibar input{flex:1;border:1px solid #333;border-radius:6px;background:#000;color:#e5e5e5;font:13px monospace;padding:7px 10px;outline:none}
 #ibar input:focus{border-color:#A78BFA}
 @media(max-width:768px){#keys{display:flex}#ibar{display:flex}}
 </style></head><body>
@@ -43,10 +43,10 @@ body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-seri
 <div id="tabs"></div>
 <div id="wrap"><canvas id="cv"></canvas><div id="ov"><div class="spin"></div>Connecting to terminal...</div></div>
 <div id="keys">
-<button data-k="\x1b[A">&#x2191;</button><button data-k="\x1b[B">&#x2193;</button><button data-k="\x1b[D">&#x2190;</button><button data-k="\x1b[C">&#x2192;</button>
+<button id="k-up">&#x2191;</button><button id="k-dn">&#x2193;</button><button id="k-lt">&#x2190;</button><button id="k-rt">&#x2192;</button>
 <div class="sep"></div>
-<button data-k=" ">SPC</button><button data-k="\t">TAB</button><button data-k="\x1b">ESC</button><button data-k="\x03">^C</button><button data-k="\x7f">&#x232B;</button>
-<button class="ent" data-k="\r">&#x23CE;</button>
+<button id="k-spc">SPC</button><button id="k-tab">TAB</button><button id="k-esc">ESC</button><button id="k-cc" style="color:#ef4444">^C</button><button id="k-bs">&#x232B;</button>
+<button class="ent" id="k-ret">&#x23CE;</button>
 </div>
 <div id="ibar"><input id="cmd" type="text" placeholder="$ command..." autocapitalize="off" autocorrect="off" spellcheck="false"></div>
 <script>
@@ -294,9 +294,14 @@ function sizeCanvas(){
   }
 }
 
-// ── Key buttons ──
-document.querySelectorAll('#keys button[data-k]').forEach(function(b){
-  b.addEventListener('pointerdown',function(e){ e.preventDefault(); sendKey(b.dataset.k); });
+// ── Key buttons (real escape sequences) ──
+var keyMap = {
+  'k-up':'\x1b[A', 'k-dn':'\x1b[B', 'k-lt':'\x1b[D', 'k-rt':'\x1b[C',
+  'k-spc':' ', 'k-tab':'\t', 'k-esc':'\x1b', 'k-cc':'\x03', 'k-bs':'\x7f', 'k-ret':'\r'
+};
+Object.keys(keyMap).forEach(function(id){
+  var el = document.getElementById(id);
+  if(el) el.addEventListener('pointerdown',function(e){ e.preventDefault(); sendKey(keyMap[id]); });
 });
 
 // ── Command input ──
