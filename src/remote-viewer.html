@@ -300,11 +300,6 @@ function handle(msg){
     }
     document.getElementById('ov').style.display='none';
     // Resize producer PTY to match viewer — only once per pane to avoid loop
-    if(viewCols>0 && viewRows>0 && ptyId && !getPane(ptyId)._resized){
-      getPane(ptyId)._resized = true;
-      send({event:'terminal:resize', pty_id:ptyId, payload:{cols:viewCols, rows:viewRows}});
-      setTimeout(function(){ send({event:'terminal:request_snapshot', pty_id:ptyId}); }, 300);
-    }
   } else if(ev==='terminal:update'){
     var ptyId2 = msg.pty_id;
     var p2 = msg.payload;
@@ -396,8 +391,6 @@ function sizeCanvas(){
     viewCols=c; viewRows=r;
     cv.width=c*cellW; cv.height=r*cellH;
     cv.style.width=cv.width/DPR+'px'; cv.style.height=cv.height/DPR+'px';
-    // Send resize to producer so it sends correctly sized snapshots
-    if(activePty) send({event:'terminal:resize', pty_id:activePty, payload:{cols:c, rows:r}});
     // Mark active pane fully dirty for repaint
     if (activePty) { var s=paneStates.get(activePty); if(s){s.dirty.clear();for(var i=0;i<Math.max(s.rows,r);i++)s.dirty.add(i);} }
   }
