@@ -9,6 +9,11 @@ body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-seri
 .badge{font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(167,139,250,.15);color:#A78BFA;font-weight:600;text-transform:uppercase}
 .sp{flex:1}
 .vi{color:#888;font-size:12px}
+#ws-tabs{display:none;align-items:stretch;overflow-x:auto;background:#0d0d0d;flex-shrink:0;border-bottom:1px solid #222}
+#ws-tabs button{position:relative;display:flex;align-items:center;gap:6px;padding:7px 14px;border:none;background:transparent;color:#555;font:500 12px/1 -apple-system,system-ui,sans-serif;cursor:pointer;white-space:nowrap;transition:color .1s,background .1s}
+#ws-tabs button:hover{background:#151515;color:#999}
+#ws-tabs button.active{color:#A78BFA;background:#111}
+#ws-tabs button.active::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:#A78BFA}
 #tabs{display:none;align-items:stretch;overflow-x:auto;border-bottom:1px solid #222;background:#111;flex-shrink:0}
 #tabs button{position:relative;display:flex;align-items:center;gap:6px;padding:6px 12px;border:none;background:transparent;color:#666;font:500 11px/1 -apple-system,system-ui,sans-serif;cursor:pointer;white-space:nowrap;border-right:1px solid #222;transition:color .1s,background .1s}
 #tabs button:hover{background:#1a1a1a;color:#aaa}
@@ -34,6 +39,7 @@ body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-seri
 @media(max-width:768px){#keys{display:flex}#ibar{display:flex}}
 </style></head><body>
 <div id="bar"><span class="logo">MEMAXX</span><div class="st"><span class="dot off" id="dot"></span><span id="st">Connecting...</span></div><span class="badge" id="md">readonly</span><span class="sp"></span><span class="vi" id="vc"></span></div>
+<div id="ws-tabs"></div>
 <div id="tabs"></div>
 <div id="wrap"><canvas id="cv"></canvas><div id="ov"><div class="spin"></div>Connecting to terminal...</div></div>
 <div id="keys">
@@ -59,6 +65,8 @@ const rgbCache = new Map();
 const paneStates = new Map();
 let paneList = []; // PaneMetadata[] from terminal:meta
 let activePty = null;
+let workspaceList = []; // WorkspaceInfo[] from terminal:meta
+let activeWsId = null;
 
 function rgb(r,g,b){ const k=(r<<16)|(g<<8)|b; let c=rgbCache.get(k); if(!c){c='rgb('+r+','+g+','+b+')';rgbCache.set(k,c);} return c; }
 
@@ -167,6 +175,24 @@ function renderTabs() {
 
 function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function renderWorkspaceTabs() {
+  var el = document.getElementById('ws-tabs');
+  if (workspaceList.length <= 1) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = '';
+  workspaceList.forEach(function(ws) {
+    var btn = document.createElement('button');
+    if (ws.id === activeWsId) btn.className = 'active';
+    btn.textContent = ws.name || ws.rootDir.split('/').pop() || 'Workspace';
+    btn.onclick = function() {
+      send({event:'workspace:switch', workspace_id: ws.id});
+      activeWsId = ws.id;
+      renderWorkspaceTabs();
+    };
+    el.appendChild(btn);
+  });
+}
+
 function switchPane(ptyId) {
   activePty = ptyId;
   renderTabs();
@@ -222,12 +248,18 @@ function handle(msg){
       else if(p2.t==='c') setCursor(ptyId2, p2.x, p2.y, p2.v);
     }
   } else if(ev==='terminal:meta'){
-    if(msg.payload && msg.payload.panes){
-      paneList = msg.payload.panes;
-      // Request snapshots for all panes
-      paneList.forEach(function(pane){ send({event:'terminal:request_snapshot', pty_id: pane.pty_id}); });
-      if (!activePty && paneList.length > 0) activePty = paneList[0].pty_id;
-      renderTabs();
+    if(msg.payload){
+      if (msg.payload.panes) {
+        paneList = msg.payload.panes;
+        paneList.forEach(function(pane){ send({event:'terminal:request_snapshot', pty_id: pane.pty_id}); });
+        if (!activePty && paneList.length > 0) activePty = paneList[0].pty_id;
+        renderTabs();
+      }
+      if (msg.payload.workspaces) {
+        workspaceList = msg.payload.workspaces;
+        activeWsId = msg.payload.activeWorkspaceId || null;
+        renderWorkspaceTabs();
+      }
     }
   }
 }
