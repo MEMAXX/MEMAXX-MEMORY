@@ -385,23 +385,21 @@ export function renderRemotePage() {
           else {
             let line = '';
             for (const cell of row) {
-              // Cell format: [char, fg, bg, flags] or {char, fg, bg, flags}
-              const ch = cell?.char || cell?.[0] || ' ';
-              const fg = cell?.fg ?? cell?.[1];
-              const bg = cell?.bg ?? cell?.[2];
-              const flags = cell?.flags ?? cell?.[3] ?? 0;
+              // Cell format from Rust: {c: char, fg: [r,g,b]|null, bg: [r,g,b]|null, flags: u16}
+              const ch = cell?.c || ' ';
+              const fg = cell?.fg; // [r, g, b] array or null
+              const bg = cell?.bg; // [r, g, b] array or null
+              const flags = cell?.flags || 0;
 
               let sgr = '';
               if (flags & 1) sgr += '1;'; // bold
               if (flags & 2) sgr += '3;'; // italic
               if (flags & 4) sgr += '4;'; // underline
-              if (fg !== undefined && fg !== null && fg !== 0xFFFFFF && fg !== -1) {
-                const r = (fg >> 16) & 0xFF, g = (fg >> 8) & 0xFF, b = fg & 0xFF;
-                sgr += '38;2;' + r + ';' + g + ';' + b + ';';
+              if (fg && Array.isArray(fg)) {
+                sgr += '38;2;' + fg[0] + ';' + fg[1] + ';' + fg[2] + ';';
               }
-              if (bg !== undefined && bg !== null && bg !== 0 && bg !== -1) {
-                const r = (bg >> 16) & 0xFF, g = (bg >> 8) & 0xFF, b = bg & 0xFF;
-                sgr += '48;2;' + r + ';' + g + ';' + b + ';';
+              if (bg && Array.isArray(bg)) {
+                sgr += '48;2;' + bg[0] + ';' + bg[1] + ';' + bg[2] + ';';
               }
               if (sgr) {
                 line += '\\x1b[' + sgr.slice(0, -1) + 'm' + ch + '\\x1b[0m';
