@@ -274,10 +274,11 @@ function handle(msg){
       if (!activePty) { activePty = ptyId; renderTabs(); }
     }
     document.getElementById('ov').style.display='none';
-    // Tell producer to resize PTY to viewer dimensions, then request fresh snapshot
-    if(viewCols>0 && viewRows>0 && ptyId){
+    // Resize producer PTY to match viewer — only once per pane to avoid loop
+    if(viewCols>0 && viewRows>0 && ptyId && !getPane(ptyId)._resized){
+      getPane(ptyId)._resized = true;
       send({event:'terminal:resize', pty_id:ptyId, payload:{cols:viewCols, rows:viewRows}});
-      setTimeout(function(){ send({event:'terminal:request_snapshot', pty_id:ptyId}); }, 200);
+      setTimeout(function(){ send({event:'terminal:request_snapshot', pty_id:ptyId}); }, 300);
     }
   } else if(ev==='terminal:update'){
     var ptyId2 = msg.pty_id;
@@ -352,7 +353,8 @@ function initCanvas(){
   cv=document.getElementById('cv');
   ctx=cv.getContext('2d',{alpha:false});
   if(/Mac|iPhone|iPad/.test(navigator.platform)) ctx.textRendering='geometricPrecision';
-  new ResizeObserver(function(){ sizeCanvas(); }).observe(document.getElementById('wrap'));
+  var resizeTimer=null;
+  new ResizeObserver(function(){ if(resizeTimer)clearTimeout(resizeTimer); resizeTimer=setTimeout(sizeCanvas,150); }).observe(document.getElementById('wrap'));
   sizeCanvas();
   (function loop(){ render(); requestAnimationFrame(loop); })();
 }
