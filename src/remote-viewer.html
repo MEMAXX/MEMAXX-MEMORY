@@ -1,16 +1,29 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>MEMAXX Remote Terminal</title><style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-serif;height:100dvh;display:flex;flex-direction:column;overflow:hidden;touch-action:none}
-#bar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:#111;border-bottom:1px solid #222;font-size:13px;flex-shrink:0}
-#bar .logo{font-weight:700;font-size:14px}
-.st{display:flex;align-items:center;gap:6px}
-.dot{width:8px;height:8px;border-radius:50%}
-.on{background:#22c55e}.off{background:#ef4444}
-.badge{font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(167,139,250,.15);color:#A78BFA;font-weight:600;text-transform:uppercase}
+#bar{display:flex;align-items:center;gap:8px;padding:5px 10px;background:#111;border-bottom:1px solid #222;font-size:12px;flex-shrink:0}
+.st{display:flex;align-items:center;gap:6px;color:#888}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.on{background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.5);animation:pulse 2s ease-in-out infinite}.off{background:#ef4444}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.latency{font:500 11px/1 monospace;color:#666}
 .sp{flex:1}
-.vi{color:#888;font-size:12px}
+#bar .ctrl{display:flex;align-items:center;gap:4px}
+#bar .ctrl button{display:flex;align-items:center;justify-content:center;height:26px;padding:0 8px;border:none;border-radius:4px;background:#1a1a1a;color:#888;font:500 11px/1 -apple-system,system-ui,sans-serif;cursor:pointer;transition:background .1s,color .1s;gap:4px}
+#bar .ctrl button:hover{background:#222;color:#e5e5e5}
+#bar .ctrl button.danger:hover{background:rgba(239,68,68,.15);color:#ef4444}
+#bar .ctrl .sep{width:1px;height:16px;background:#333}
+#dialog{display:none;position:fixed;inset:0;z-index:50;align-items:center;justify-content:center;background:rgba(0,0,0,.6)}
+#dialog.open{display:flex}
+#dialog .card{background:#111;border:1px solid #222;border-radius:12px;padding:20px;max-width:320px;width:90%}
+#dialog .card h3{font-size:14px;font-weight:600;margin-bottom:6px}
+#dialog .card p{font-size:12px;color:#888;margin-bottom:16px}
+#dialog .card .btns{display:flex;gap:8px;justify-content:flex-end}
+#dialog .card .btns button{padding:6px 14px;border:none;border-radius:6px;font:500 12px/1 -apple-system,system-ui,sans-serif;cursor:pointer}
+#dialog .card .btns .cancel{background:#222;color:#aaa}
+#dialog .card .btns .confirm{background:#ef4444;color:#fff}
 #ws-tabs{display:none;align-items:stretch;overflow-x:auto;background:#0d0d0d;flex-shrink:0;border-bottom:1px solid #222}
-#ws-tabs button{position:relative;display:flex;align-items:center;gap:6px;padding:7px 14px;border:none;background:transparent;color:#555;font:500 12px/1 -apple-system,system-ui,sans-serif;cursor:pointer;white-space:nowrap;transition:color .1s,background .1s}
+#ws-tabs button{position:relative;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 14px;border:none;background:transparent;color:#555;font:500 12px/1 -apple-system,system-ui,sans-serif;cursor:pointer;white-space:nowrap;transition:color .1s,background .1s;flex:1;overflow:hidden;text-overflow:ellipsis}
 #ws-tabs button:hover{background:#151515;color:#999}
 #ws-tabs button.active{color:#A78BFA;background:#111}
 #ws-tabs button.active::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:#A78BFA}
@@ -38,7 +51,8 @@ body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-seri
 #ibar input:focus{border-color:#A78BFA}
 @media(max-width:768px){#keys{display:flex}#ibar{display:flex}}
 </style></head><body>
-<div id="bar"><span class="logo">MEMAXX</span><div class="st"><span class="dot off" id="dot"></span><span id="st">Connecting...</span></div><span class="badge" id="md">readonly</span><span class="sp"></span><span class="vi" id="vc"></span></div>
+<div id="bar"><div class="st"><span class="dot off" id="dot"></span><span id="st">Connecting...</span><span class="latency" id="lat"></span></div><span class="sp"></span><div class="ctrl"><button id="btn-new" title="New terminal">&#x2b; New</button><div class="sep"></div><button id="btn-close" class="danger" title="Close terminal">&#x2715; Close</button></div></div>
+<div id="dialog"><div class="card"><h3>Close terminal?</h3><p>This will close the active terminal pane and terminate any running processes.</p><div class="btns"><button class="cancel" onclick="closeDialog()">Cancel</button><button class="confirm" onclick="confirmClose()">Close</button></div></div></div>
 <div id="ws-tabs"></div>
 <div id="tabs"></div>
 <div id="wrap"><canvas id="cv"></canvas><div id="ov"><div class="spin"></div>Connecting to terminal...</div></div>
@@ -276,11 +290,37 @@ function handle(msg){
         renderWorkspaceTabs();
       }
     }
+  } else if(ev==='terminal:pong'){
+    if(msg.ts) setLatency(Date.now()-msg.ts);
   }
 }
 
 function setStatus(on,txt){ document.getElementById('dot').className='dot '+(on?'on':'off'); document.getElementById('st').textContent=txt; }
-function setMode(m){ mode=m; document.getElementById('md').textContent=m; }
+function setMode(m){ mode=m; }
+function setLatency(ms){ document.getElementById('lat').textContent=ms+'ms'; }
+
+// ── Control buttons ──
+document.getElementById('btn-new').onclick=function(){
+  if(!activePty||mode!=='interactive') return;
+  send({event:'pane:split', pty_id:activePty, payload:{direction:'horizontal'}});
+};
+document.getElementById('btn-close').onclick=function(){
+  if(!activePty) return;
+  document.getElementById('dialog').className='open';
+};
+function closeDialog(){ document.getElementById('dialog').className=''; }
+function confirmClose(){
+  closeDialog();
+  if(activePty&&mode==='interactive') send({event:'pane:close', pty_id:activePty, payload:{}});
+}
+
+// Latency ping every 5s
+setInterval(function(){
+  if(ws&&ws.readyState===1){
+    var t=Date.now();
+    send({event:'terminal:ping', payload:{ts:t}});
+  }
+},5000);
 
 // ── Canvas init ──
 var inited=false;
