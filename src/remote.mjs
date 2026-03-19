@@ -149,7 +149,7 @@ function handleConnection(ws, role, params) {
  */
 function isWriteCommand(msg) {
   const event = msg?.event || msg?.payload?.event;
-  return event === "terminal:write" || event === "pane:split" || event === "pane:close";
+  return event === "terminal:write";
 }
 
 /**

@@ -321,7 +321,7 @@ function setLatency(ms){ document.getElementById('lat').textContent=ms+'ms'; }
 // ── Control buttons ──
 document.getElementById('btn-ws').onclick=function(){ showWorkspaceDialog(); };
 document.getElementById('btn-new').onclick=function(){
-  if(!activePty||mode!=='interactive') return;
+  if(!activePty) return;
   send({event:'pane:split', pty_id:activePty, payload:{direction:'horizontal'}});
 };
 document.getElementById('btn-close').onclick=function(){
@@ -333,7 +333,7 @@ document.getElementById('btn-close').onclick=function(){
 function closeDialog(){ document.getElementById('dialog').className=''; }
 function confirmClose(){
   closeDialog();
-  if(activePty&&mode==='interactive') send({event:'pane:close', pty_id:activePty, payload:{}});
+  if(activePty) send({event:'pane:close', pty_id:activePty, payload:{}});
 }
 
 // Latency ping every 5s
