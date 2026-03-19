@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>MEMAXX Remote Terminal</title><style>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>MEMAXX Remote</title><style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-serif;height:100dvh;display:flex;flex-direction:column;overflow:hidden;touch-action:none}
 #bar{display:flex;align-items:center;gap:8px;padding:5px 10px;background:#111;border-bottom:1px solid #222;font-size:12px;flex-shrink:0}
@@ -30,7 +30,6 @@ body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-seri
 #tabs button{position:relative;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 12px;border:none;background:transparent;color:#666;font:500 11px/1 -apple-system,system-ui,sans-serif;cursor:pointer;white-space:nowrap;border-right:1px solid #222;transition:color .1s,background .1s;flex:1;overflow:hidden;text-overflow:ellipsis}
 #tabs button:hover{background:#1a1a1a;color:#aaa}
 #tabs button.active{background:#000;color:#e5e5e5}
-#tabs button.active::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:#A78BFA}
 #tabs .tdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 #tabs .alive{background:#22c55e}
 #tabs .dead{background:#555}
@@ -43,7 +42,7 @@ body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-seri
 #keys button{display:flex;align-items:center;justify-content:center;height:36px;min-width:36px;padding:0 10px;border:none;border-radius:6px;background:#1a1a1a;color:#aaa;font:600 12px/1 monospace;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .1s,color .1s}
 #keys button:active{background:#A78BFA;color:#000}
 #keys .sep{width:1px;height:22px;background:#333;margin:0 4px;flex-shrink:0}
-#keys .ent{margin-left:auto;background:rgba(167,139,250,.15);color:#A78BFA;padding:0 20px;border-radius:6px}
+#keys .ent{margin-left:auto;background:rgba(167,139,250,.15);color:#A78BFA;padding:0 28px;border-radius:6px;font-size:16px}
 #keys .ent:active{background:#A78BFA;color:#000}
 #ibar{display:none;align-items:center;gap:6px;border-top:1px solid #222;background:#111;padding:6px 8px;flex-shrink:0}
 #ibar input{flex:1;border:1px solid #333;border-radius:6px;background:#000;color:#e5e5e5;font:13px monospace;padding:7px 10px;outline:none}
@@ -55,9 +54,9 @@ body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-seri
 <div id="tabs"></div>
 <div id="wrap"><canvas id="cv"></canvas><div id="ov"><div class="spin"></div>Connecting to terminal...</div></div>
 <div id="keys">
-<button id="k-up">&#x2191;</button><button id="k-dn">&#x2193;</button><button id="k-lt">&#x2190;</button><button id="k-rt">&#x2192;</button>
+<button id="k-up" style="font-size:16px">&#x2191;</button><button id="k-dn" style="font-size:16px">&#x2193;</button><button id="k-lt" style="font-size:16px">&#x2190;</button><button id="k-rt" style="font-size:16px">&#x2192;</button>
 <div class="sep"></div>
-<button id="k-spc">SPC</button><button id="k-tab">TAB</button><button id="k-esc">ESC</button><button id="k-cc" style="color:#ef4444">^C</button><button id="k-bs">&#x232B;</button>
+<button id="k-spc">SPC</button><button id="k-tab">TAB</button><button id="k-esc">ESC</button><button id="k-cc" style="color:#ef4444">^C</button><button id="k-bs" style="font-size:16px">&#x232B;</button>
 <button class="ent" id="k-ret">&#x23CE;</button>
 </div>
 <div id="ibar"><input id="cmd" type="text" placeholder="$ command..." autocapitalize="off" autocorrect="off" spellcheck="false"></div>
@@ -287,10 +286,10 @@ function sendKey(k){ if(mode==='interactive' && activePty) send({event:'terminal
 function handle(msg){
   var ev = msg.event;
   if(ev==='session:info'){
-    if(msg.active){ initCanvas(); setStatus(true,msg.device||'Connected'); setMode(msg.mode); send({event:'terminal:request_meta'}); }
+    if(msg.active){ initCanvas(); setStatus(true,'Connected'); setMode(msg.mode); send({event:'terminal:request_meta'}); }
     else setStatus(false,'No active session');
   } else if(ev==='session:start'){
-    initCanvas(); setStatus(true,msg.device||'Connected'); setMode(msg.mode); send({event:'terminal:request_meta'});
+    initCanvas(); setStatus(true,'Connected'); setMode(msg.mode); send({event:'terminal:request_meta'});
   } else if(ev==='session:end'){
     setStatus(false,'Session ended');
   } else if(ev==='mode:change'){
