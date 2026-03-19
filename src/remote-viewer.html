@@ -15,7 +15,7 @@ body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-seri
 #ws-tabs button.active{color:#A78BFA;background:#111}
 #ws-tabs button.active::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:#A78BFA}
 #tabs{display:none;align-items:stretch;overflow-x:auto;border-bottom:1px solid #222;background:#111;flex-shrink:0}
-#tabs button{position:relative;display:flex;align-items:center;gap:6px;padding:6px 12px;border:none;background:transparent;color:#666;font:500 11px/1 -apple-system,system-ui,sans-serif;cursor:pointer;white-space:nowrap;border-right:1px solid #222;transition:color .1s,background .1s}
+#tabs button{position:relative;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 12px;border:none;background:transparent;color:#666;font:500 11px/1 -apple-system,system-ui,sans-serif;cursor:pointer;white-space:nowrap;border-right:1px solid #222;transition:color .1s,background .1s;flex:1;overflow:hidden;text-overflow:ellipsis}
 #tabs button:hover{background:#1a1a1a;color:#aaa}
 #tabs button.active{background:#000;color:#e5e5e5}
 #tabs button.active::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:#A78BFA}
@@ -161,15 +161,19 @@ function render() {
 // ── Tab Bar ──
 function renderTabs() {
   const tabsEl = document.getElementById('tabs');
-  if (paneList.length <= 1) { tabsEl.style.display = 'none'; return; }
   tabsEl.style.display = 'flex';
   tabsEl.innerHTML = '';
   paneList.forEach(function(pane, i) {
     const btn = document.createElement('button');
     const isActive = pane.pty_id === activePty;
     if (isActive) btn.className = 'active';
-    const name = pane.paneTitle || pane.cwd.split('/').pop() || pane.shellName || ('Terminal '+(i+1));
-    btn.innerHTML = '<span class="tdot '+(pane.isAlive?'alive':'dead')+'"></span>' + escHtml(name);
+    // Title priority: explicit title > folder name from cwd > shell name > generic
+    var title = pane.paneTitle;
+    if (!title && pane.cwd) title = pane.cwd.split('/').pop();
+    if (!title) title = pane.shellName || ('Terminal '+(i+1));
+    // Prefix with AI CLI name if detected
+    if (pane.aiCli) title = pane.aiCli + ' — ' + title;
+    btn.innerHTML = '<span class="tdot '+(pane.isAlive?'alive':'dead')+'"></span><span style="overflow:hidden;text-overflow:ellipsis">' + escHtml(title) + '</span>';
     btn.onclick = function() { switchPane(pane.pty_id); };
     tabsEl.appendChild(btn);
   });
