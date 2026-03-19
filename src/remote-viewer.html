@@ -473,7 +473,7 @@ document.getElementById('wrap').addEventListener('touchmove',function(e){
   touchAcc += dy;
   var rowPx = cellH / DPR;
   var lines = Math.trunc(touchAcc / rowPx);
-  if(lines!==0){ touchAcc -= lines * rowPx; scrollViewport(lines); }
+  if(lines!==0){ touchAcc -= lines * rowPx; scrollViewport(-lines); }
 },{passive:true});
 document.getElementById('wrap').addEventListener('touchend',function(){touchY=null;touchAcc=0;},{passive:true});
 
