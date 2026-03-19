@@ -252,9 +252,18 @@ function handle(msg){
   } else if(ev==='terminal:meta'){
     if(msg.payload){
       if (msg.payload.panes) {
-        paneList = msg.payload.panes;
+        var newPanes = msg.payload.panes;
+        var newIds = new Set(newPanes.map(function(p){return p.pty_id;}));
+        // Clear stale pane states from previous workspace
+        for (var oldId of paneStates.keys()) {
+          if (!newIds.has(oldId)) paneStates.delete(oldId);
+        }
+        paneList = newPanes;
+        // Reset activePty if it's not in the new pane list
+        if (!activePty || !newIds.has(activePty)) {
+          activePty = paneList.length > 0 ? paneList[0].pty_id : null;
+        }
         paneList.forEach(function(pane){ send({event:'terminal:request_snapshot', pty_id: pane.pty_id}); });
-        if (!activePty && paneList.length > 0) activePty = paneList[0].pty_id;
         renderTabs();
       }
       if (msg.payload.workspaces) {
