@@ -74,11 +74,12 @@ function handleConnection(ws, role, params) {
     // Notify all viewers of producer connection
     broadcast(session.viewers, { event: "session:start", mode: session.mode, device: session.deviceName });
 
-    ws.on("message", (data) => {
-      // Relay producer broadcasts to all viewers
+    ws.on("message", (data, isBinary) => {
+      // Relay producer broadcasts to all viewers as text
+      const msg = isBinary ? data : data.toString();
       for (const viewer of session.viewers) {
         if (viewer.readyState === 1) {
-          viewer.send(data);
+          viewer.send(msg);
         }
       }
     });
@@ -112,20 +113,21 @@ function handleConnection(ws, role, params) {
       send(session.producer, { event: "viewer:join", viewerCount });
     }
 
-    ws.on("message", (data) => {
+    ws.on("message", (data, isBinary) => {
       // Relay viewer commands to producer
       if (!session.producer || session.producer.readyState !== 1) return;
+      const dataStr = isBinary ? data : data.toString();
 
       // Mode enforcement: block writes in readonly mode
       try {
-        const msg = JSON.parse(data.toString());
+        const msg = JSON.parse(dataStr);
         if (session.mode === "readonly" && isWriteCommand(msg)) {
           send(ws, { event: "error", message: "Terminal is in read-only mode" });
           return;
         }
       } catch {}
 
-      session.producer.send(data);
+      session.producer.send(dataStr);
     });
 
     ws.on("close", () => {

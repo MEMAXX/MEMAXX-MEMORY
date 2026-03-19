@@ -77,7 +77,7 @@ function updateRows(dirtyRows){
 function setCursor(x,y,v){ if(curY>=0&&curY<rows) dirty.add(curY); if(y>=0&&y<rows) dirty.add(y); curX=x; curY=y; curVis=v; }
 function markAll(){ dirty.clear(); for(let i=0;i<rows;i++) dirty.add(i); }
 
-function render(){
+function render(){ if(dirty.size>0) console.log("[remote] render",dirty.size,"dirty rows"); 
   if(!ctx) return;
   if(dirty.size===0) return;
   const sz=FONT_SIZE*DPR;
@@ -138,7 +138,7 @@ function connect(){
 function send(obj){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(obj)); }
 function sendKey(k){ if(mode==='interactive') send({event:'terminal:write',payload:{data:k}}); }
 
-function handle(msg){
+function handle(msg){ console.log("[remote]",msg.event,msg); 
   const ev = msg.event;
   if(ev==='session:info'){
     if(msg.active){ initCanvas(); setStatus(true,msg.device||'Connected'); setMode(msg.mode); send({event:'terminal:request_meta'}); }
@@ -171,7 +171,7 @@ function setMode(m){ mode=m; document.getElementById('md').textContent=m; }
 
 // ── Canvas init ──
 let inited=false;
-function initCanvas(){
+function initCanvas(){ console.log("[remote] initCanvas called"); 
   if(inited) return; inited=true;
   measure();
   cv=document.getElementById('cv');
@@ -180,6 +180,13 @@ function initCanvas(){
   const ro=new ResizeObserver(()=>{ sizeCanvas(); send({event:'terminal:resize',payload:{cols,rows}}); });
   ro.observe(document.getElementById('wrap'));
   sizeCanvas();
+  // DEBUG: draw red rect to verify canvas works
+  ctx.fillStyle = 'red';
+  ctx.fillRect(0, 0, 200, 50);
+  ctx.fillStyle = 'white';
+  ctx.font = '20px sans-serif';
+  ctx.fillText('Canvas works! Waiting for snapshot...', 10, 30);
+  console.log('[remote] Canvas test drawn, size:', cv.width, 'x', cv.height);
   // Start render loop
   (function loop(){ render(); requestAnimationFrame(loop); })();
 }
