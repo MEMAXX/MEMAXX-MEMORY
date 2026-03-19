@@ -37,6 +37,7 @@ import { randomBytes } from "node:crypto";
 import { readConfig, configExists, getConfigDir, getEmbeddingDimension, getDefaultModel, getProviderUrl } from "./src/config.mjs";
 import { initDatabase, closeDatabase } from "./src/db.mjs";
 import { TOOL_DEFINITIONS, handleToolCall, setConfigs, setProjectId, setProjectManifest } from "./src/tools.mjs";
+import { attachRemoteTerminal, renderRemotePage, getRemoteSession, setRemoteMode } from "./src/remote.mjs";
 
 // ── Configuration ───────────────────────────────────────────────────
 
@@ -928,14 +929,38 @@ async function startHttpServer() {
       return;
     }
 
+    // ── Remote Terminal Viewer ──────────────────────────────────
+    if (pathname === "/remote" && method === "GET") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
+      res.end(renderRemotePage());
+      return;
+    }
+
+    if (pathname === "/api/remote/session" && method === "GET") {
+      sendJson(res, 200, getRemoteSession());
+      return;
+    }
+
+    if (pathname === "/api/remote/mode" && method === "POST") {
+      let body = {};
+      try { body = await parseBody(req); } catch {}
+      const result = setRemoteMode(null, null, body);
+      sendJson(res, result.status || 200, result);
+      return;
+    }
+
     // ── 404 ─────────────────────────────────────────────────────
-    sendJson(res, 404, { error: "Not found", endpoints: { mcp: "/mcp", health: "/health", dashboard: "/" } });
+    sendJson(res, 404, { error: "Not found", endpoints: { mcp: "/mcp", health: "/health", dashboard: "/", remote: "/remote" } });
   });
+
+  // Attach WebSocket handler for remote terminal
+  attachRemoteTerminal(server);
 
   server.listen(port, host, () => {
     log(`Started v${SERVER_VERSION} — HTTP server`);
     log(`MCP endpoint:  http://${host}:${port}/mcp`);
     log(`Dashboard:     http://${host}:${port}/`);
+    log(`Remote:        http://${host}:${port}/remote`);
     log(`Health check:  http://${host}:${port}/health`);
     if (authToken) log(`Auth:          enabled (Bearer token)`);
     log(`Database:      ${dbReady ? "PostgreSQL connected" : "not configured"}`);
