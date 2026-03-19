@@ -270,6 +270,9 @@ export function renderRemotePage() {
       ws.onerror = () => {};
     }
 
+    let snapshotTimer = null;
+    let lastDirtyTime = 0;
+
     function handleMessage(msg) {
       const event = msg.event || msg.payload?.event;
 
@@ -280,8 +283,7 @@ export function renderRemotePage() {
             setStatus(true, msg.device || 'Connected');
             setMode(msg.mode);
             document.getElementById('viewer-count').textContent = msg.viewerCount + ' viewer(s)';
-            // Request full state
-            sendCommand({ event: 'terminal:request_meta' });
+            sendCommand({ event: 'terminal:request_snapshot' });
           } else {
             setStatus(false, 'No active session');
           }
@@ -291,7 +293,7 @@ export function renderRemotePage() {
           initTerminal();
           setStatus(true, msg.device || 'Connected');
           setMode(msg.mode);
-          sendCommand({ event: 'terminal:request_meta' });
+          sendCommand({ event: 'terminal:request_snapshot' });
           break;
 
         case 'session:end':
@@ -311,7 +313,12 @@ export function renderRemotePage() {
           break;
 
         case 'terminal:meta':
-          // Could display pane list — for now just request snapshots
+          // Request snapshot for each pane
+          if (msg.payload?.panes) {
+            for (const pane of msg.payload.panes) {
+              sendCommand({ event: 'terminal:request_snapshot', pty_id: pane.pty_id });
+            }
+          }
           break;
 
         case 'terminal:pong':
@@ -328,27 +335,33 @@ export function renderRemotePage() {
       const p = msg.payload;
 
       switch (p.t) {
-        case 'd': // dirty rows
-          if (p.rows) {
-            for (const row of p.rows) {
-              if (row.cells) {
-                const line = row.cells.map(c => c.char || ' ').join('');
-                // Position cursor at row start and write
-                term.write('\\x1b[' + (row.y + 1) + ';1H' + line);
+        case 'd': // dirty rows — request fresh snapshot (debounced)
+          lastDirtyTime = Date.now();
+          if (!snapshotTimer) {
+            snapshotTimer = setTimeout(() => {
+              snapshotTimer = null;
+              // Only request if no new dirty rows for 100ms
+              if (Date.now() - lastDirtyTime >= 80) {
+                sendCommand({ event: 'terminal:request_snapshot', pty_id: msg.pty_id });
               }
-            }
+            }, 100);
           }
           break;
         case 'c': // cursor move
-          if (p.x !== undefined && p.y !== undefined) {
+          if (term && p.x !== undefined && p.y !== undefined) {
             term.write('\\x1b[' + (p.y + 1) + ';' + (p.x + 1) + 'H');
           }
           break;
         case 'cw': // cwd changed
           document.title = 'MEMAXX Remote — ' + (p.path || '');
+          sendCommand({ event: 'terminal:request_snapshot', pty_id: msg.pty_id });
           break;
         case 'tt': // title
           document.title = 'MEMAXX Remote — ' + (p.title || '');
+          break;
+        case 'as': // alt screen toggle
+        case 'ex': // exit
+          sendCommand({ event: 'terminal:request_snapshot', pty_id: msg.pty_id });
           break;
       }
     }
@@ -358,26 +371,56 @@ export function renderRemotePage() {
       const s = msg.payload;
 
       // Resize terminal to match
-      if (s.cols && s.rows) {
+      if (s.cols && s.rows && (s.cols !== term.cols || s.rows !== term.rows)) {
         term.resize(s.cols, s.rows);
       }
 
-      // Clear and redraw
-      term.clear();
-      term.write('\\x1b[H'); // cursor home
-      if (s.cells) {
+      // Render snapshot: build ANSI string from cell grid
+      if (s.cells && s.cells.length > 0) {
+        term.write('\\x1b[H'); // cursor home
+        let output = '';
         for (let y = 0; y < s.cells.length; y++) {
           const row = s.cells[y];
-          if (!row) continue;
-          const line = row.map(c => c?.char || c?.[0] || ' ').join('');
-          term.write(line);
-          if (y < s.cells.length - 1) term.write('\\r\\n');
+          if (!row) { output += '\\x1b[K'; } // clear line
+          else {
+            let line = '';
+            for (const cell of row) {
+              // Cell format: [char, fg, bg, flags] or {char, fg, bg, flags}
+              const ch = cell?.char || cell?.[0] || ' ';
+              const fg = cell?.fg ?? cell?.[1];
+              const bg = cell?.bg ?? cell?.[2];
+              const flags = cell?.flags ?? cell?.[3] ?? 0;
+
+              let sgr = '';
+              if (flags & 1) sgr += '1;'; // bold
+              if (flags & 2) sgr += '3;'; // italic
+              if (flags & 4) sgr += '4;'; // underline
+              if (fg !== undefined && fg !== null && fg !== 0xFFFFFF && fg !== -1) {
+                const r = (fg >> 16) & 0xFF, g = (fg >> 8) & 0xFF, b = fg & 0xFF;
+                sgr += '38;2;' + r + ';' + g + ';' + b + ';';
+              }
+              if (bg !== undefined && bg !== null && bg !== 0 && bg !== -1) {
+                const r = (bg >> 16) & 0xFF, g = (bg >> 8) & 0xFF, b = bg & 0xFF;
+                sgr += '48;2;' + r + ';' + g + ';' + b + ';';
+              }
+              if (sgr) {
+                line += '\\x1b[' + sgr.slice(0, -1) + 'm' + ch + '\\x1b[0m';
+              } else {
+                line += ch;
+              }
+            }
+            output += line + '\\x1b[K'; // write line + clear to end
+          }
+          if (y < s.cells.length - 1) output += '\\r\\n';
         }
+        term.write(output);
       }
 
       // Restore cursor
       if (s.cursorX !== undefined && s.cursorY !== undefined) {
         term.write('\\x1b[' + (s.cursorY + 1) + ';' + (s.cursorX + 1) + 'H');
+        if (s.cursorVisible === false) term.write('\\x1b[?25l');
+        else term.write('\\x1b[?25h');
       }
     }
 
