@@ -290,44 +290,28 @@ function detectGitRemote(projectRoot) {
   } catch { return null; }
 }
 
+/** DJB2 hash — deterministic, same algorithm as desktop app and tools.mjs */
+function djb2Hash(str) {
+  const normalized = str.replace(/\\/g, "/").replace(/\/+$/, "");
+  let hash = 5381;
+  for (let i = 0; i < normalized.length; i++) {
+    hash = ((hash << 5) + hash + normalized.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
 function resolveProject(projectRoot) {
   const folderName = projectRoot.replace(/\\/g, "/").split("/").pop() || projectRoot;
+  const gitRemote = detectGitRemote(projectRoot);
+  const id = gitRemote ? djb2Hash(gitRemote) : djb2Hash(projectRoot);
 
-  let existing = null;
-  try {
-    existing = JSON.parse(readFileSync(join(projectRoot, ".memaxx", "project.json"), "utf-8"));
-  } catch { /* */ }
-
-  if (existing?.id) {
-    existing.last_used = new Date().toISOString();
-    try {
-      writeFileSync(join(projectRoot, ".memaxx", "project.json"), JSON.stringify(existing, null, 2) + "\n");
-    } catch { /* */ }
-    return existing;
-  }
-
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let id = "";
-  const bytes = randomBytes(12);
-  for (let i = 0; i < 12; i++) id += chars[bytes[i] % chars.length];
-
-  const project = {
+  return {
     id,
     name: folderName,
-    git_remote: detectGitRemote(projectRoot),
+    git_remote: gitRemote,
     created_at: new Date().toISOString(),
     last_used: new Date().toISOString(),
   };
-
-  if (!isHomeDir(projectRoot)) {
-    try {
-      mkdirSync(join(projectRoot, ".memaxx"), { recursive: true });
-      writeFileSync(join(projectRoot, ".memaxx", "project.json"), JSON.stringify(project, null, 2) + "\n");
-      log(`Created .memaxx/project.json (id: ${id})`);
-    } catch { /* */ }
-  }
-
-  return project;
 }
 
 function resolveRequestContext(argsProjectRoot) {
@@ -652,17 +636,8 @@ async function startHttpServer() {
     if (_cachedProjectHash) return _cachedProjectHash;
 
     const root = process.cwd();
-    try {
-      const projectJson = JSON.parse(readFileSync(join(root, ".memaxx", "project.json"), "utf-8"));
-      if (projectJson.id) { _cachedProjectHash = projectJson.id; return _cachedProjectHash; }
-    } catch { /* */ }
-
-    let hash = 5381;
-    const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "");
-    for (let i = 0; i < normalized.length; i++) {
-      hash = ((hash << 5) + hash + normalized.charCodeAt(i)) | 0;
-    }
-    _cachedProjectHash = Math.abs(hash).toString(36);
+    const remote = detectGitRemote(root);
+    _cachedProjectHash = remote ? djb2Hash(remote) : djb2Hash(root);
     return _cachedProjectHash;
   }
 
@@ -931,7 +906,7 @@ async function startHttpServer() {
 
     // ── Remote Terminal Viewer ──────────────────────────────────
     if (pathname === "/remote" && method === "GET") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, must-revalidate", "Pragma": "no-cache" });
       res.end(renderRemotePage());
       return;
     }

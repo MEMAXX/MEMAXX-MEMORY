@@ -199,13 +199,10 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-let _viewerHtmlCache = null;
 export function renderRemotePage() {
-  if (_viewerHtmlCache) return _viewerHtmlCache;
   try {
     const dir = dirname(fileURLToPath(import.meta.url));
-    _viewerHtmlCache = readFileSync(join(dir, "remote-viewer.html"), "utf-8");
-    return _viewerHtmlCache;
+    return readFileSync(join(dir, "remote-viewer.html"), "utf-8");
   } catch (err) {
     return "<html><body><h1>Remote viewer not found: " + err.message + "</h1></body></html>";
   }
