@@ -33,7 +33,7 @@ body{background:#000;color:#e5e5e5;font-family:-apple-system,system-ui,sans-seri
 #tabs .tdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 #tabs .alive{background:#22c55e}
 #tabs .dead{background:#555}
-#wrap{flex:1;overflow-x:auto;overflow-y:hidden;position:relative;background:#000;-webkit-overflow-scrolling:touch}
+#wrap{flex:1;overflow:hidden;position:relative;background:#000}
 #wrap canvas{display:block}
 #ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.85);color:#888;font-size:15px;flex-direction:column;gap:12px;z-index:5}
 .spin{width:24px;height:24px;border:2px solid #333;border-top-color:#A78BFA;border-radius:50%;animation:s .6s linear infinite}
@@ -159,7 +159,7 @@ function render() {
   const tyOff = (cellH-sz)/2;
   ctx.textBaseline = 'top';
 
-  var renderCols = s.cols; // full width — horizontal scroll handles overflow
+  var renderCols = Math.min(s.cols, viewCols);
   var renderRows = Math.min(s.rows, viewRows);
   var sbLen = s.scrollback.length;
   // When grid is taller than viewport, offset to show the bottom (where cursor is)
@@ -282,7 +282,7 @@ function connect(){
 function send(obj){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(obj)); }
 function sendKey(k){ if(mode==='interactive' && activePty) send({event:'terminal:write', pty_id:activePty, payload:{data:k}}); }
 
-// Viewer is read-only for PTY dimensions — never sends terminal:resize
+var didResize = false;
 function handle(msg){
   var ev = msg.event;
   if(ev==='session:info'){
@@ -328,7 +328,25 @@ function handle(msg){
         if (!activePty || !newIds.has(activePty)) {
           activePty = paneList.length > 0 ? paneList[0].pty_id : null;
         }
-        paneList.forEach(function(pane){ send({event:'terminal:request_snapshot', pty_id: pane.pty_id}); });
+        // On first meta: resize producer PTY to fit mobile viewport
+        if (!didResize && viewCols > 0 && viewRows > 0) {
+          var needsResize = paneList.some(function(p){ return p.cols > viewCols || p.rows > viewRows; });
+          if (needsResize) {
+            didResize = true;
+            paneList.forEach(function(pane){
+              send({event:'terminal:resize', pty_id: pane.pty_id, payload:{cols:viewCols, rows:viewRows}});
+            });
+            // Wait for resize to settle, then request snapshots
+            setTimeout(function(){
+              paneList.forEach(function(pane){ send({event:'terminal:request_snapshot', pty_id: pane.pty_id}); });
+            }, 500);
+          } else {
+            didResize = true;
+            paneList.forEach(function(pane){ send({event:'terminal:request_snapshot', pty_id: pane.pty_id}); });
+          }
+        } else {
+          paneList.forEach(function(pane){ send({event:'terminal:request_snapshot', pty_id: pane.pty_id}); });
+        }
         renderTabs();
       }
       if (msg.payload.workspaces) {
@@ -395,10 +413,7 @@ function sizeCanvas(){
   var r=Math.floor(rect.height*DPR/cellH);
   if(c>0&&r>0){
     viewCols=c; viewRows=r;
-    var s = activePty ? paneStates.get(activePty) : null;
-    var gridCols = s ? s.cols : c;
-    var canvasCols = Math.max(c, gridCols);
-    var newW = canvasCols*cellW, newH = r*cellH;
+    var newW = c*cellW, newH = r*cellH;
     // Only resize canvas if dimensions actually changed (resizing clears canvas + resets scroll)
     if(newW !== lastCanvasW || newH !== lastCanvasH){
       lastCanvasW=newW; lastCanvasH=newH;
