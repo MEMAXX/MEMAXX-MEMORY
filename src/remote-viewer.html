@@ -254,6 +254,8 @@ function switchWorkspace(wsId) {
   closeDialog();
   send({event:'workspace:switch', workspace_id: wsId});
   activeWsId = wsId;
+  activePty = null;
+  didResize = false;
   renderWorkspaceButton();
 }
 
