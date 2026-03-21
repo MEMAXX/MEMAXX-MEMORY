@@ -101,8 +101,11 @@ function getPane(ptyId) {
 
 function setGrid(ptyId, cells, c, r) {
   const s = getPane(ptyId);
+  var colsChanged = s.cols !== c;
   s.grid = cells; s.cols = c; s.rows = r;
   s.dirty.clear(); for(let i=0;i<r;i++) s.dirty.add(i);
+  // Only resize canvas if grid columns changed (not on every snapshot)
+  if(colsChanged && ptyId === activePty) sizeCanvas();
 }
 
 function updateRows(ptyId, dirtyRows) {
@@ -383,7 +386,7 @@ function initCanvas(){
   (function loop(){ render(); requestAnimationFrame(loop); })();
 }
 
-var viewCols=80, viewRows=24;
+var viewCols=80, viewRows=24, lastCanvasW=0, lastCanvasH=0;
 function sizeCanvas(){
   if(!cv||!cellW) return;
   var wrap=document.getElementById('wrap');
@@ -392,14 +395,17 @@ function sizeCanvas(){
   var r=Math.floor(rect.height*DPR/cellH);
   if(c>0&&r>0){
     viewCols=c; viewRows=r;
-    // Canvas width = max of viewport and grid (enables horizontal scroll)
     var s = activePty ? paneStates.get(activePty) : null;
     var gridCols = s ? s.cols : c;
     var canvasCols = Math.max(c, gridCols);
-    cv.width=canvasCols*cellW; cv.height=r*cellH;
-    cv.style.width=cv.width/DPR+'px'; cv.style.height=cv.height/DPR+'px';
-    // Mark active pane fully dirty for repaint
-    if (activePty) { var s=paneStates.get(activePty); if(s){s.dirty.clear();for(var i=0;i<Math.max(s.rows,r);i++)s.dirty.add(i);} }
+    var newW = canvasCols*cellW, newH = r*cellH;
+    // Only resize canvas if dimensions actually changed (resizing clears canvas + resets scroll)
+    if(newW !== lastCanvasW || newH !== lastCanvasH){
+      lastCanvasW=newW; lastCanvasH=newH;
+      cv.width=newW; cv.height=newH;
+      cv.style.width=cv.width/DPR+'px'; cv.style.height=cv.height/DPR+'px';
+      if (activePty && s) { s.dirty.clear(); for(var i=0;i<Math.max(s.rows,r);i++) s.dirty.add(i); }
+    }
   }
 }
 
