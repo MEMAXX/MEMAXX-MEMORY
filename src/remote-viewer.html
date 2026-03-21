@@ -271,12 +271,25 @@ const wsProto = location.protocol==='https:'?'wss:':'ws:';
 const wsUrl = wsProto+'//'+location.host+'/remote/ws?role=viewer';
 let ws=null, mode='readonly', reconnTimer=null;
 
+var reconnectAttempt = 0;
 function connect(){
-  ws = new WebSocket(wsUrl);
-  ws.onopen = function() { if(reconnTimer){clearTimeout(reconnTimer);reconnTimer=null;} };
+  try { ws = new WebSocket(wsUrl); } catch(e) { scheduleReconnect(); return; }
+  ws.onopen = function() {
+    reconnectAttempt = 0;
+    if(reconnTimer){clearTimeout(reconnTimer);reconnTimer=null;}
+    // Reset state for fresh connection
+    didResize = false;
+  };
   ws.onmessage = function(e) { try{handle(JSON.parse(e.data));}catch(err){console.error('[remote] parse error:',err);} };
-  ws.onclose = function() { setStatus(false,'Disconnected'); reconnTimer=setTimeout(connect,3000); };
+  ws.onclose = function() { setStatus(false,'Reconnecting...'); scheduleReconnect(); };
   ws.onerror = function() {};
+}
+function scheduleReconnect(){
+  if(reconnTimer) return;
+  // Exponential backoff: 1s, 2s, 4s, max 10s
+  var delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 10000);
+  reconnectAttempt++;
+  reconnTimer = setTimeout(function(){ reconnTimer=null; connect(); }, delay);
 }
 
 function send(obj){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(obj)); }
