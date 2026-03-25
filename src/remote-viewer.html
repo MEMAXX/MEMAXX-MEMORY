@@ -99,13 +99,20 @@ function getPane(ptyId) {
   return s;
 }
 
+// gridSkip: when grid has more rows than viewport, skip top rows to show bottom
+function getGridSkip(s) { return Math.max(0, s.rows - viewRows); }
+
+// Convert grid row index to screen row index
+function gridToScreen(s, gridRow) { return gridRow - getGridSkip(s); }
+
 function setGrid(ptyId, cells, c, r) {
   const s = getPane(ptyId);
   var colsChanged = s.cols !== c;
   s.grid = cells; s.cols = c; s.rows = r;
-  s.dirty.clear(); for(let i=0;i<r;i++) s.dirty.add(i);
-  // Only resize canvas if grid columns changed (not on every snapshot)
-  if(colsChanged && ptyId === activePty) sizeCanvas();
+  // Mark all visible screen rows dirty
+  s.dirty.clear();
+  for (let i = 0; i < Math.min(r, viewRows); i++) s.dirty.add(i);
+  if (colsChanged && ptyId === activePty) sizeCanvas();
 }
 
 function updateRows(ptyId, dirtyRows) {
@@ -115,21 +122,29 @@ function updateRows(ptyId, dirtyRows) {
     const cells = dr.cells;
     if (y < s.grid.length) s.grid[y] = cells;
     else { while(s.grid.length<=y) s.grid.push(Array.from({length:s.cols},()=>({c:' '}))); s.grid[y]=cells; }
-    s.dirty.add(y);
+    // Convert grid row to screen row — only mark if visible
+    if (s.sbOffset === 0) {
+      var screenRow = gridToScreen(s, y);
+      if (screenRow >= 0 && screenRow < viewRows) s.dirty.add(screenRow);
+    }
   }
 }
 
 function setCursor(ptyId, x, y, v) {
   const s = getPane(ptyId);
-  if(s.curY>=0&&s.curY<s.rows) s.dirty.add(s.curY);
-  if(y>=0&&y<s.rows) s.dirty.add(y);
-  s.curX=x; s.curY=y; s.curVis=v;
+  // Unmark old cursor screen position
+  if (s.sbOffset === 0) {
+    var oldScreen = gridToScreen(s, s.curY);
+    if (oldScreen >= 0 && oldScreen < viewRows) s.dirty.add(oldScreen);
+    var newScreen = gridToScreen(s, y);
+    if (newScreen >= 0 && newScreen < viewRows) s.dirty.add(newScreen);
+  }
+  s.curX = x; s.curY = y; s.curVis = v;
 }
 
 function appendScrollback(ptyId, lines) {
   const s = getPane(ptyId);
   for (const line of lines) s.scrollback.push(line);
-  // Cap at 10000 lines
   if (s.scrollback.length > 10000) s.scrollback = s.scrollback.slice(s.scrollback.length - 10000);
 }
 
@@ -147,7 +162,7 @@ function scrollViewport(delta) {
 
 function markAllDirty(s) {
   s.dirty.clear();
-  for (var i = 0; i < Math.max(s.rows, viewRows); i++) s.dirty.add(i);
+  for (var i = 0; i < viewRows; i++) s.dirty.add(i);
 }
 
 function render() {
@@ -160,18 +175,23 @@ function render() {
   ctx.textBaseline = 'top';
 
   var renderCols = Math.min(s.cols, viewCols);
-  var renderRows = Math.min(s.rows, viewRows);
   var sbLen = s.scrollback.length;
-  // When grid is taller than viewport, offset to show the bottom (where cursor is)
-  var gridSkip = Math.max(0, s.rows - viewRows);
+  var gridSkip = getGridSkip(s);
   var showCursor = s.sbOffset === 0;
   for (const screenRow of s.dirty) {
-    if (screenRow<0 || screenRow>=renderRows) continue;
-    // Viewport: scrollback lines above, then grid lines (offset to bottom)
-    var bufIdx = sbLen - s.sbOffset + screenRow;
+    if (screenRow < 0 || screenRow >= viewRows) continue;
+    // Map screen row to content: scrollback (if scrolled up) or grid
     var line;
-    if (bufIdx < sbLen) { line = s.scrollback[bufIdx] || null; }
-    else { var gridRow = bufIdx - sbLen + gridSkip; line = gridRow < s.grid.length ? s.grid[gridRow] : null; }
+    if (s.sbOffset > 0) {
+      // Scrolled up — show scrollback + top of grid
+      var bufIdx = sbLen - s.sbOffset + screenRow;
+      if (bufIdx < sbLen) { line = s.scrollback[bufIdx] || null; }
+      else { var gr = bufIdx - sbLen; line = gr < s.grid.length ? s.grid[gr] : null; }
+    } else {
+      // At bottom — show last viewRows of grid
+      var gridRow = screenRow + gridSkip;
+      line = gridRow < s.grid.length ? s.grid[gridRow] : null;
+    }
     const y = screenRow*cellH;
     ctx.fillStyle = rgb(DEF_BG[0],DEF_BG[1],DEF_BG[2]);
     ctx.fillRect(0, y, cv.width, cellH);
@@ -184,9 +204,8 @@ function render() {
       const x = col*cellW;
       let fg = cell.fg||DEF_FG, bg = cell.bg||null;
       if (fl&INVERSE) { const t=fg; fg=bg||DEF_BG; bg=t; }
-      const isGridRow = bufIdx >= sbLen;
-      const gridRow2 = bufIdx - sbLen + gridSkip;
-      const isCur = showCursor && s.curVis && isGridRow && gridRow2===s.curY && col===s.curX;
+      const curScreenRow = gridToScreen(s, s.curY);
+      const isCur = showCursor && s.curVis && screenRow===curScreenRow && col===s.curX;
       if (isCur) { bg=CURSOR_CLR; fg=DEF_BG; }
       if (bg) { ctx.fillStyle=rgb(bg[0],bg[1],bg[2]); ctx.fillRect(x,y,cellW,cellH); }
       const ch = cell.c;
@@ -434,7 +453,7 @@ function sizeCanvas(){
       lastCanvasW=newW; lastCanvasH=newH;
       cv.width=newW; cv.height=newH;
       cv.style.width=cv.width/DPR+'px'; cv.style.height=cv.height/DPR+'px';
-      if (activePty && s) { s.dirty.clear(); for(var i=0;i<Math.max(s.rows,r);i++) s.dirty.add(i); }
+      if (activePty) { var ps=paneStates.get(activePty); if(ps) markAllDirty(ps); }
     }
   }
 }
