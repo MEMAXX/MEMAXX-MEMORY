@@ -17,6 +17,10 @@ export function setConfigs(embeddingConfig, llmConfig) {
   _llmConfig = llmConfig;
 }
 
+export function getConfigs() {
+  return { embeddingConfig: _embeddingConfig, llmConfig: _llmConfig };
+}
+
 // ── Tool Definitions ─────────────────────────────────────────────────
 
 export const TOOL_DEFINITIONS = [
@@ -678,9 +682,11 @@ async function handleStore(args, ph) {
   const finalType = qg.type;
   const finalImportance = qg.importance;
 
+  // Optimistically mark both as pending — cleared after successful processing.
+  // If embedding/LLM APIs are offline, flags stay TRUE and retry worker picks them up.
   await query(`
-    INSERT INTO memories (id, project_hash, content, type, importance_score, tags, related_files, session_name, content_hash)
-    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)
+    INSERT INTO memories (id, project_hash, content, type, importance_score, tags, related_files, session_name, content_hash, embedding_pending, entities_pending)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, TRUE, TRUE)
   `, [
     id, ph, content,
     finalType,
@@ -702,20 +708,43 @@ async function handleStore(args, ph) {
 
 /** Background processing for a stored memory */
 async function processMemoryAsync(id, content, type, ph) {
-  // 1. Generate and store embedding
-  if (_embeddingConfig) {
-    const embedding = await generateEmbedding(content, _embeddingConfig);
-    if (embedding) {
-      try {
+  // 1. Generate and store embedding — on success, clear embedding_pending.
+  // On failure (provider offline, rate-limit, etc.), flag stays TRUE for retry.
+  if (!_embeddingConfig) {
+    // No provider configured at all — not "pending", just unavailable.
+    await query("UPDATE memories SET embedding_pending = FALSE WHERE id = $1", [id]);
+  } else {
+    try {
+      const embedding = await generateEmbedding(content, _embeddingConfig);
+      if (embedding) {
         const vec = formatEmbedding(embedding);
-        await query("UPDATE memories SET embedding = $1::vector WHERE id = $2", [vec, id]);
-      } catch { /* vec insert error */ }
+        await query(
+          "UPDATE memories SET embedding = $1::vector, embedding_pending = FALSE WHERE id = $2",
+          [vec, id]
+        );
+      }
+      // If embedding is null/empty without throwing, leave pending=TRUE for retry.
+    } catch (err) {
+      // Provider error — keep pending=TRUE so retry worker picks it up.
     }
   }
 
-  // 2. Extract and store entities
-  if (_llmConfig) {
-    const { entities, relations } = await extractEntities(content, type, _llmConfig);
+  // 2. Extract and store entities — same pattern as embeddings.
+  if (!_llmConfig) {
+    await query("UPDATE memories SET entities_pending = FALSE WHERE id = $1", [id]);
+    return;
+  }
+
+  let extractResult;
+  try {
+    extractResult = await extractEntities(content, type, _llmConfig);
+  } catch {
+    // LLM offline — leave entities_pending=TRUE for retry worker.
+    return;
+  }
+
+  try {
+    const { entities, relations } = extractResult;
 
     for (const ent of entities) {
       const entId = generateId();
@@ -775,6 +804,11 @@ async function processMemoryAsync(id, content, type, ph) {
         }
       } catch { /* */ }
     }
+
+    // Entity + relation extraction finished cleanly — clear pending flag.
+    await query("UPDATE memories SET entities_pending = FALSE WHERE id = $1", [id]);
+  } catch {
+    // Unexpected failure in entity processing — leave entities_pending=TRUE.
   }
 }
 

@@ -63,6 +63,16 @@ describe("/health endpoint", () => {
     expect(health.database.projects).toBeTypeOf("number");
   });
 
+  it("Phase 4: reports pending embedding/entity counts", () => {
+    if (!health.database.connected) return;
+    // These fields MUST exist after Phase 4 migration. They are the retry
+    // worker's visibility surface — missing fields = regression.
+    expect(health.database.pending_embeddings).toBeTypeOf("number");
+    expect(health.database.pending_entities).toBeTypeOf("number");
+    expect(health.database.pending_embeddings).toBeGreaterThanOrEqual(0);
+    expect(health.database.pending_entities).toBeGreaterThanOrEqual(0);
+  });
+
   it("includes remote session info", () => {
     expect(health.remote).toBeDefined();
     expect(health.remote.active).toBeTypeOf("boolean");

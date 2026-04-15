@@ -79,10 +79,20 @@ export async function searchMemories(params, embeddingConfig) {
   const { rows: candidates } = await query(sql, sqlParams);
   if (candidates.length === 0) return { results: [], count: 0, search_mode: searchMode };
 
-  // 2. Score each candidate
-  const queryEmbedding = weights.semantic > 0
-    ? await generateEmbedding(searchQuery, embeddingConfig)
-    : null;
+  // 2. Score each candidate.
+  // Graceful degradation: if the embedding provider is offline, fall through
+  // to FTS + tag + freshness scoring instead of failing the whole request.
+  let queryEmbedding = null;
+  let semanticDegraded = false;
+  if (weights.semantic > 0 && embeddingConfig) {
+    try {
+      queryEmbedding = await generateEmbedding(searchQuery, embeddingConfig);
+    } catch {
+      semanticDegraded = true;
+    }
+  } else if (weights.semantic > 0) {
+    semanticDegraded = true;
+  }
 
   // Pre-fetch FTS matches
   const ftsScores = new Map();
@@ -225,6 +235,7 @@ export async function searchMemories(params, embeddingConfig) {
     results,
     count: results.length,
     search_mode: searchMode,
+    ...(semanticDegraded ? { degraded: "semantic_unavailable" } : {}),
   };
 }
 

@@ -40,6 +40,7 @@ import { TOOL_DEFINITIONS, handleToolCall, setConfigs, setProjectId, setProjectM
 import { attachRemoteTerminal, renderRemotePage, getRemoteSession, setRemoteMode } from "./src/remote.mjs";
 import { childLog } from "./src/log.mjs";
 import { scheduleBackups } from "./src/backup.mjs";
+import { startRetryWorker } from "./src/retry.mjs";
 
 const rootLog = childLog("memaxx");
 
@@ -229,6 +230,8 @@ if (dbUrl) {
     log(`Database connected: ${dbUrl.replace(/:[^:@]+@/, ':***@')}`);
     // Start daily backup scheduler once DB is healthy
     scheduleBackups();
+    // Phase 4 graceful degradation: retry pending embeddings/entities every 5min
+    startRetryWorker();
 
     // If no embedding config from env, try loading from database
     if (config?.embedding?.provider) {
@@ -867,7 +870,9 @@ async function startHttpServer() {
             SELECT
               (SELECT COUNT(*) FROM memories WHERE is_archived = FALSE) AS memories,
               (SELECT COUNT(*) FROM entities WHERE is_valid = TRUE) AS entities,
-              (SELECT COUNT(*) FROM projects) AS projects
+              (SELECT COUNT(*) FROM projects) AS projects,
+              (SELECT COUNT(*) FROM memories WHERE embedding_pending = TRUE) AS pending_embeddings,
+              (SELECT COUNT(*) FROM memories WHERE entities_pending = TRUE) AS pending_entities
           `);
           dbStats = {
             connected: true,
@@ -875,6 +880,8 @@ async function startHttpServer() {
             memories: parseInt(rows[0]?.memories || 0),
             entities: parseInt(rows[0]?.entities || 0),
             projects: parseInt(rows[0]?.projects || 0),
+            pending_embeddings: parseInt(rows[0]?.pending_embeddings || 0),
+            pending_entities: parseInt(rows[0]?.pending_entities || 0),
           };
         } catch (err) {
           dbStats = { connected: false, error: err.message };

@@ -422,6 +422,17 @@ function getMigrations(dim) {
         );
       `,
     },
+    {
+      name: "018_graceful_degradation",
+      sql: `
+        ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_pending BOOLEAN DEFAULT FALSE;
+        ALTER TABLE memories ADD COLUMN IF NOT EXISTS entities_pending BOOLEAN DEFAULT FALSE;
+        CREATE INDEX IF NOT EXISTS idx_memories_embedding_pending
+          ON memories(project_hash) WHERE embedding_pending = TRUE;
+        CREATE INDEX IF NOT EXISTS idx_memories_entities_pending
+          ON memories(project_hash) WHERE entities_pending = TRUE;
+      `,
+    },
   ];
 }
 
