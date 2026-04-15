@@ -88,18 +88,11 @@ describe("Remote mode enforcement", () => {
   });
 
   it("readonly mode allows pane:close (passed through to producer)", async () => {
+    // Producer's connect() attaches a buffer — any pane:close that arrives
+    // is captured in producer._buffer and found by waitFor.
     const producer = await connect("producer", "readonly");
-    let received = null;
-    producer.on("message", (data) => {
-      try {
-        const msg = JSON.parse(data.toString());
-        if (msg.event === "pane:close") received = msg;
-      } catch {}
-    });
-
     await new Promise((r) => setTimeout(r, 100));
 
-    // Soft-skip if another producer is competing for session
     const s = await (await fetch(BASE + "/api/remote/session")).json();
     if (s.mode !== "readonly" || !s.active) {
       producer.close();
@@ -110,7 +103,7 @@ describe("Remote mode enforcement", () => {
     const viewer = await connect("viewer");
     try {
       await waitFor(viewer, (m) => m.event === "session:info");
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 100));
 
       viewer.send(JSON.stringify({
         event: "pane:close",
@@ -118,12 +111,8 @@ describe("Remote mode enforcement", () => {
         payload: {},
       }));
 
-      // Poll for up to 1.5s
-      for (let i = 0; i < 15 && !received; i++) {
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      expect(received).toBeDefined();
-      expect(received?.event).toBe("pane:close");
+      const received = await waitFor(producer, (m) => m.event === "pane:close", 3000);
+      expect(received.event).toBe("pane:close");
     } finally {
       producer.close();
       viewer.close();
@@ -132,14 +121,6 @@ describe("Remote mode enforcement", () => {
 
   it("interactive mode allows terminal:write", async () => {
     const producer = await connect("producer", "interactive");
-    let received = null;
-    producer.on("message", (data) => {
-      try {
-        const msg = JSON.parse(data.toString());
-        if (msg.event === "terminal:write") received = msg;
-      } catch {}
-    });
-
     await new Promise((r) => setTimeout(r, 100));
 
     const s = await (await fetch(BASE + "/api/remote/session")).json();
@@ -152,7 +133,7 @@ describe("Remote mode enforcement", () => {
     const viewer = await connect("viewer");
     try {
       await waitFor(viewer, (m) => m.event === "session:info");
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 100));
 
       viewer.send(JSON.stringify({
         event: "terminal:write",
@@ -160,11 +141,8 @@ describe("Remote mode enforcement", () => {
         payload: { data: "x" },
       }));
 
-      for (let i = 0; i < 15 && !received; i++) {
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      expect(received).toBeDefined();
-      expect(received?.payload?.data).toBe("x");
+      const received = await waitFor(producer, (m) => m.event === "terminal:write", 3000);
+      expect(received.payload?.data).toBe("x");
     } finally {
       producer.close();
       viewer.close();

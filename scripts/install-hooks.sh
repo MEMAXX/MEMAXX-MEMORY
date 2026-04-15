@@ -21,18 +21,30 @@ cat > "$HOOK_DIR/pre-push" <<'HOOK'
 # Runs the full test suite before allowing a push. Blocks on failure.
 # Bypass with `git push --no-verify` in emergencies.
 
-set -e
+# pipefail is critical: without it, `npm test | tail` returns tail's exit
+# code (always 0) and failed tests would silently pass the hook.
+set -eo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
 echo "▶ Running MEMAXX smoke tests..."
-if ! npm test --silent 2>&1 | tail -20; then
+# Capture output to a temp file so we can show tail on failure AND
+# use npm test's real exit code (not tail's).
+TMPFILE=$(mktemp)
+if npm test --silent > "$TMPFILE" 2>&1; then
+  rm -f "$TMPFILE"
+  echo "✓ All tests green — proceeding with push."
+else
+  EXIT_CODE=$?
   echo ""
-  echo "✖ Tests failed — push blocked."
-  echo "  Fix the tests or use 'git push --no-verify' to bypass (not recommended)."
+  echo "── Test output (last 30 lines) ──"
+  tail -30 "$TMPFILE"
+  rm -f "$TMPFILE"
+  echo ""
+  echo "✖ Tests failed (exit $EXIT_CODE) — push blocked."
+  echo "  Bypass: git push --no-verify (not recommended)"
   exit 1
 fi
-echo "✓ All tests green — proceeding with push."
 HOOK
 
 chmod +x "$HOOK_DIR/pre-push"
