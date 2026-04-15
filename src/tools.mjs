@@ -7,8 +7,6 @@ import { query, generateId, contentHash } from "./db.mjs";
 import { generateEmbedding, cosineSimilarity } from "./embeddings.mjs";
 import { extractEntities } from "./llm.mjs";
 import { searchMemories, getPredictiveMemories, getRecentActivity, formatEmbedding } from "./search.mjs";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
 /** @type {object} */
 let _embeddingConfig = null;
@@ -516,59 +514,40 @@ export const TOOL_DEFINITIONS = [
 
 // ── Tool Handlers ────────────────────────────────────────────────────
 
-/** Resolve project hash from project_root arg */
-function resolveProjectHash(args) {
-  const root = args?.project_root || process.cwd();
-  // Simple hash of the path
+/** DJB2 hash — deterministic, same algorithm as desktop app */
+function djb2Hash(str) {
+  const normalized = str.replace(/\\/g, "/").replace(/\/+$/, "");
   let hash = 5381;
-  const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "");
   for (let i = 0; i < normalized.length; i++) {
     hash = ((hash << 5) + hash + normalized.charCodeAt(i)) | 0;
   }
   return Math.abs(hash).toString(36);
 }
 
-// Store project_id mapping
-const projectIdMap = new Map();
 let _projectManifest = null;
 
-export function setProjectId(root, id) {
-  projectIdMap.set(root.replace(/\\/g, "/").replace(/\/+$/, ""), id);
+export function setProjectId(_root, _id) {
+  // No-op — kept for API compatibility with bin.mjs
 }
 
 export function setProjectManifest(manifest) {
   _projectManifest = manifest;
 }
 
+/**
+ * Resolve project hash: explicit project_id > git_remote hash > path hash.
+ * No file I/O. Same hash on any machine cloning the same repo.
+ */
 function getProjectHash(args) {
-  const root = (args?.project_root || process.cwd()).replace(/\\/g, "/").replace(/\/+$/, "");
-  // Priority: explicit project_id > projectIdMap > .memaxx/project.json > git_remote hash > path hash
+  // 1. Explicit override from MCP caller
   if (args?.project_id) return args.project_id;
-  if (projectIdMap.has(root)) return projectIdMap.get(root);
-
-  // Try reading .memaxx/project.json from the project_root (works in local mode)
-  try {
-    let dir = root;
-    for (let i = 0; i < 6; i++) {
-      try {
-        const pj = JSON.parse(readFileSync(join(dir, ".memaxx", "project.json"), "utf-8"));
-        if (pj?.id) {
-          projectIdMap.set(root, pj.id); // cache for future calls
-          return pj.id;
-        }
-      } catch { /* not here */ }
-      const parent = dir.replace(/\/[^/]+\/?$/, "") || "/";
-      if (parent === dir) break;
-      dir = parent;
-    }
-  } catch { /* path not accessible (Docker can't see host filesystem) */ }
-
-  // If git_remote is provided, use it for deterministic cross-machine hash
-  if (args?.git_remote && typeof args.git_remote === "string" && args.git_remote.length > 0) {
-    return resolveProjectHash({ project_root: args.git_remote });
+  // 2. Git remote → deterministic cross-machine hash
+  if (args?.git_remote && typeof args.git_remote === "string" && args.git_remote.trim().length > 0) {
+    return djb2Hash(args.git_remote.trim());
   }
-  // Fallback: deterministic DJB2 hash of project_root path
-  return resolveProjectHash(args);
+  // 3. Fallback: path hash
+  const root = args?.project_root || process.cwd();
+  return djb2Hash(root);
 }
 
 /**
