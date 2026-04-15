@@ -515,7 +515,7 @@ export const TOOL_DEFINITIONS = [
 // ── Tool Handlers ────────────────────────────────────────────────────
 
 /** DJB2 hash — deterministic, same algorithm as desktop app */
-function djb2Hash(str) {
+export function djb2Hash(str) {
   const normalized = str.replace(/\\/g, "/").replace(/\/+$/, "");
   let hash = 5381;
   for (let i = 0; i < normalized.length; i++) {
@@ -538,7 +538,7 @@ export function setProjectManifest(manifest) {
  * Resolve project hash: explicit project_id > git_remote hash > path hash.
  * No file I/O. Same hash on any machine cloning the same repo.
  */
-function getProjectHash(args) {
+export function getProjectHash(args) {
   // 1. Explicit override from MCP caller
   if (args?.project_id) return args.project_id;
   // 2. Git remote → deterministic cross-machine hash
