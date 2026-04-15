@@ -9,6 +9,7 @@ RUN npm install --omit=dev && npm cache clean --force
 
 COPY bin.mjs ./
 COPY src/ ./src/
+COPY scripts/ ./scripts/
 COPY SYSTEM_PROMPT.md ./
 
 ENV PORT=3100

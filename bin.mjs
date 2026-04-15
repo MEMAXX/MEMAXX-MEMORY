@@ -41,6 +41,7 @@ import { attachRemoteTerminal, renderRemotePage, getRemoteSession, setRemoteMode
 import { childLog } from "./src/log.mjs";
 import { scheduleBackups } from "./src/backup.mjs";
 import { startRetryWorker } from "./src/retry.mjs";
+import { consume as rateLimitConsume, clientIp } from "./src/ratelimit.mjs";
 
 const rootLog = childLog("memaxx");
 
@@ -606,7 +607,13 @@ async function startHttpServer() {
 
       req.on("data", (chunk) => {
         size += chunk.length;
-        if (size > MAX_BODY) { req.destroy(); reject(new Error("Request body too large")); return; }
+        if (size > MAX_BODY) {
+          req.destroy();
+          const err = new Error("Request body too large (max 4MB)");
+          err.statusCode = 413;
+          reject(err);
+          return;
+        }
         chunks.push(chunk);
       });
       req.on("end", () => {
@@ -785,6 +792,21 @@ async function startHttpServer() {
     const query = parseQuery(req.url || "/");
     const method = req.method || "GET";
 
+    // Rate limiting — applies to /mcp and /api/*, exempts localhost + Tailscale.
+    // GET /health stays unlimited so Docker healthchecks can't ever get 429ed.
+    if (pathname === "/mcp" || pathname.startsWith("/api/")) {
+      const ip = clientIp(req);
+      const rl = rateLimitConsume(ip);
+      if (!rl.allowed) {
+        res.writeHead(429, {
+          "Content-Type": "application/json",
+          "Retry-After": String(rl.retryAfter),
+        });
+        res.end(JSON.stringify({ error: "Rate limit exceeded", retry_after_seconds: rl.retryAfter }));
+        return;
+      }
+    }
+
     // ── MCP Streamable HTTP Endpoint ────────────────────────────
     if (pathname === "/mcp") {
       // GET opens an SSE stream for server-initiated notifications (Streamable HTTP spec)
@@ -824,7 +846,7 @@ async function startHttpServer() {
       try {
         body = await parseBody(req);
       } catch (err) {
-        sendJson(res, 400, { error: err.message });
+        sendJson(res, err.statusCode || 400, { error: err.message });
         return;
       }
 
@@ -941,7 +963,7 @@ async function startHttpServer() {
     if (match) {
       const projectHash = resolveProjectHash(query);
       let body = {};
-      try { body = await parseBody(req); } catch (err) { sendJson(res, 400, { error: err.message }); return; }
+      try { body = await parseBody(req); } catch (err) { sendJson(res, err.statusCode || 400, { error: err.message }); return; }
       try {
         await match.handler(req, res, match.params, query, body, projectHash);
       } catch (err) {

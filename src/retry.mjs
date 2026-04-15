@@ -21,25 +21,51 @@ import { childLog } from "./log.mjs";
 
 const log = childLog("retry");
 
-const INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const MIN_INTERVAL_MS = 5 * 60 * 1000;  // 5 minutes — healthy cadence
+const MAX_INTERVAL_MS = 60 * 60 * 1000; // 1 hour cap — long-outage cadence
 const BATCH_SIZE = 20;
 
 let _timer = null;
+let _currentIntervalMs = MIN_INTERVAL_MS;
+let _consecutiveEmptyOrFailedTicks = 0;
 
 export function startRetryWorker() {
   if (_timer) return;
   // First run after 30s so startup migrations finish first.
-  setTimeout(() => {
-    runOnce().catch((err) => log.error({ err }, "retry tick failed"));
-    _timer = setInterval(() => {
-      runOnce().catch((err) => log.error({ err }, "retry tick failed"));
-    }, INTERVAL_MS);
-  }, 30_000);
-  log.info({ intervalMs: INTERVAL_MS, batchSize: BATCH_SIZE }, "retry worker scheduled");
+  setTimeout(() => { tick().catch((err) => log.error({ err }, "retry tick failed")); }, 30_000);
+  log.info({ minIntervalMs: MIN_INTERVAL_MS, maxIntervalMs: MAX_INTERVAL_MS, batchSize: BATCH_SIZE }, "retry worker scheduled");
 }
 
 export function stopRetryWorker() {
-  if (_timer) { clearInterval(_timer); _timer = null; }
+  if (_timer) { clearTimeout(_timer); _timer = null; }
+  _currentIntervalMs = MIN_INTERVAL_MS;
+  _consecutiveEmptyOrFailedTicks = 0;
+}
+
+/** One scheduled tick: run the work, adjust cadence, schedule the next. */
+async function tick() {
+  let stats = { embeddings: 0, entities: 0 };
+  try {
+    stats = await runOnce();
+  } catch (err) {
+    log.error({ err }, "retry tick failed");
+  }
+
+  // Adaptive cadence: if we drained anything, reset to min interval.
+  // If we found nothing to do (or all attempts failed), back off up to MAX.
+  if (stats.embeddings > 0 || stats.entities > 0) {
+    if (_currentIntervalMs !== MIN_INTERVAL_MS) {
+      log.info({ previousMs: _currentIntervalMs }, "retry worker cadence reset to min");
+    }
+    _currentIntervalMs = MIN_INTERVAL_MS;
+    _consecutiveEmptyOrFailedTicks = 0;
+  } else {
+    _consecutiveEmptyOrFailedTicks++;
+    // Double the interval each empty tick, cap at MAX.
+    _currentIntervalMs = Math.min(MAX_INTERVAL_MS, _currentIntervalMs * 2);
+  }
+
+  _timer = setTimeout(() => { tick().catch((err) => log.error({ err }, "retry tick failed")); }, _currentIntervalMs);
 }
 
 /** Exported for tests — runs a single retry pass. */
