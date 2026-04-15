@@ -35,9 +35,13 @@ import { createInterface } from "node:readline";
 import { randomBytes } from "node:crypto";
 
 import { readConfig, configExists, getConfigDir, getEmbeddingDimension, getDefaultModel, getProviderUrl } from "./src/config.mjs";
-import { initDatabase, closeDatabase } from "./src/db.mjs";
+import { initDatabase, closeDatabase, query as dbQuery } from "./src/db.mjs";
 import { TOOL_DEFINITIONS, handleToolCall, setConfigs, setProjectId, setProjectManifest } from "./src/tools.mjs";
 import { attachRemoteTerminal, renderRemotePage, getRemoteSession, setRemoteMode } from "./src/remote.mjs";
+import { childLog } from "./src/log.mjs";
+import { scheduleBackups } from "./src/backup.mjs";
+
+const rootLog = childLog("memaxx");
 
 // ── Configuration ───────────────────────────────────────────────────
 
@@ -223,6 +227,8 @@ if (dbUrl) {
     await initDatabase(dbUrl, dim);
     dbReady = true;
     log(`Database connected: ${dbUrl.replace(/:[^:@]+@/, ':***@')}`);
+    // Start daily backup scheduler once DB is healthy
+    scheduleBackups();
 
     // If no embedding config from env, try loading from database
     if (config?.embedding?.provider) {
@@ -241,7 +247,7 @@ if (dbUrl) {
       } catch { /* dashboard module may not be available */ }
     }
   } catch (err) {
-    log(`Failed to connect to database: ${err.message}`);
+    rootLog.error({ err, component: "db" }, "failed to connect to database");
   }
 } else if (config) {
   log("No DATABASE_URL configured.");
@@ -424,7 +430,7 @@ async function handleToolsCall(req) {
     const result = await handleToolCall(toolName, toolArgs);
     return jsonRpcResult(req.id, result);
   } catch (err) {
-    log(`Tool error (${toolName}): ${err.message}`);
+    rootLog.error({ err, component: "mcp", tool: toolName }, "tool call failed");
     return jsonRpcResult(req.id, {
       content: [{ type: "text", text: JSON.stringify({ error: err.message }) }],
       isError: true,
@@ -554,11 +560,11 @@ async function startHttpServer() {
           log(`Config reloaded: embedding=${dbConfig.embedding.provider}, llm=${dbConfig.llm?.provider || 'none'}`);
         }
       } catch (err) {
-        log(`Config reload failed: ${err.message}`);
+        rootLog.error({ err, component: "provider" }, "config reload failed");
       }
     });
   } catch (err) {
-    log(`Dashboard API not available: ${err.message}`);
+    rootLog.error({ err, component: "dashboard" }, "dashboard API not available");
   }
 
   // ── Auth Middleware ──────────────────────────────────────────────
@@ -851,11 +857,44 @@ async function startHttpServer() {
 
     // ── Health Check ────────────────────────────────────────────
     if (pathname === "/health") {
+      const mem = process.memoryUsage();
+      // Quick DB health + cheap counts (best effort — don't fail the health check)
+      let dbStats = null;
+      if (dbReady) {
+        try {
+          const start = Date.now();
+          const { rows } = await dbQuery(`
+            SELECT
+              (SELECT COUNT(*) FROM memories WHERE is_archived = FALSE) AS memories,
+              (SELECT COUNT(*) FROM entities WHERE is_valid = TRUE) AS entities,
+              (SELECT COUNT(*) FROM projects) AS projects
+          `);
+          dbStats = {
+            connected: true,
+            latency_ms: Date.now() - start,
+            memories: parseInt(rows[0]?.memories || 0),
+            entities: parseInt(rows[0]?.entities || 0),
+            projects: parseInt(rows[0]?.projects || 0),
+          };
+        } catch (err) {
+          dbStats = { connected: false, error: err.message };
+        }
+      }
+      let remoteStats = null;
+      try { remoteStats = getRemoteSession(); } catch {}
+
       sendJson(res, 200, {
         status: "ok",
         version: SERVER_VERSION,
-        database: dbReady ? "connected" : "not configured",
-        uptime: process.uptime(),
+        uptime_seconds: Math.round(process.uptime()),
+        memory: {
+          rss_mb: Math.round(mem.rss / 1024 / 1024),
+          heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+          heap_total_mb: Math.round(mem.heapTotal / 1024 / 1024),
+        },
+        database: dbStats || { connected: false, reason: "not configured" },
+        remote: remoteStats,
+        node_version: process.version,
       });
       return;
     }
@@ -953,10 +992,53 @@ async function startHttpServer() {
 // ── Logging ─────────────────────────────────────────────────────────
 
 function log(msg) {
-  process.stderr.write(`[memaxx] ${msg}\n`);
+  // Backwards-compat wrapper: existing call sites pass plain strings.
+  // Route them through pino so we still get structured timestamps/levels.
+  const lower = typeof msg === "string" ? msg.toLowerCase() : "";
+  if (lower.startsWith("failed") || lower.includes(" error")) {
+    rootLog.error(msg);
+  } else if (lower.includes("warn")) {
+    rootLog.warn(msg);
+  } else {
+    rootLog.info(msg);
+  }
 }
 
 // ── Graceful Shutdown ───────────────────────────────────────────────
 
 process.on("SIGINT", async () => { await closeDatabase(); process.exit(0); });
 process.on("SIGTERM", async () => { await closeDatabase(); process.exit(0); });
+
+// ── Uncaught Error Sentinel ─────────────────────────────────────────
+// Route uncaught exceptions + unhandled rejections into pino AND — best-effort —
+// persist them as a debug memory so `memory_postmortem_warnings` surfaces them
+// in the next Claude Code session. The system memory uses project_hash "system".
+
+async function persistErrorMemory(err, kind) {
+  try {
+    const { generateId, contentHash } = await import("./src/db.mjs");
+    const content = `[${kind}] ${err?.message || String(err)}\n${err?.stack || ""}`.slice(0, 8000);
+    const id = generateId();
+    const hash = contentHash(content);
+    await dbQuery(
+      `INSERT INTO memories (id, content, type, project_hash, importance_score, tags, related_files, content_hash, is_archived, created_at, updated_at)
+       VALUES ($1, $2, 'debug', 'system', 1.0, $3, '[]', $4, FALSE, NOW(), NOW())
+       ON CONFLICT (project_hash, content_hash) DO NOTHING`,
+      [id, content, JSON.stringify([kind, "crash", "auto-captured"]), hash]
+    );
+  } catch { /* best effort — DB may be down or migration old */ }
+}
+
+process.on("uncaughtException", async (err) => {
+  rootLog.fatal({ err }, "uncaught exception");
+  await persistErrorMemory(err, "uncaughtException");
+  // Flush logs and exit so Docker restarts us cleanly.
+  setTimeout(() => process.exit(1), 200);
+});
+
+process.on("unhandledRejection", async (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  rootLog.error({ err }, "unhandled promise rejection");
+  await persistErrorMemory(err, "unhandledRejection");
+  // Don't exit on unhandled rejection — log and continue
+});

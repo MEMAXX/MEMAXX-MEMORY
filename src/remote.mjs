@@ -9,6 +9,9 @@
  */
 
 import { WebSocketServer } from "ws";
+import { childLog } from "./log.mjs";
+
+const rlog = childLog("remote");
 
 /** @type {{ producer: WebSocket|null, viewers: Set<WebSocket>, mode: string, deviceName: string|null, startedAt: string|null }} */
 const session = {
@@ -91,7 +94,7 @@ function handleConnection(ws, role, params) {
       broadcast(session.viewers, { event: "session:end" });
     });
 
-    ws.on("error", (err) => log(`Producer error: ${err.message}`));
+    ws.on("error", (err) => rlog.error({ err, role: "producer" }, "websocket error"));
 
   } else {
     // Viewer connection
@@ -140,7 +143,7 @@ function handleConnection(ws, role, params) {
       }
     });
 
-    ws.on("error", (err) => log(`Viewer error: ${err.message}`));
+    ws.on("error", (err) => rlog.error({ err, role: "viewer" }, "websocket error"));
   }
 }
 
@@ -212,5 +215,9 @@ export function renderRemotePage() {
 // Old inline template removed — template literals corrupt escape sequences.
 
 function log(msg) {
-  process.stderr.write(`[memaxx-remote] ${msg}\n`);
+  // Backwards-compat wrapper: routes legacy string logs through structured pino.
+  const lower = typeof msg === "string" ? msg.toLowerCase() : "";
+  if (lower.includes("error")) rlog.error(msg);
+  else if (lower.includes("warn")) rlog.warn(msg);
+  else rlog.info(msg);
 }
