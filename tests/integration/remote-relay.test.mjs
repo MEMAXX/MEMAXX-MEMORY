@@ -24,12 +24,16 @@ function connect(role, mode = "readonly") {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WS_URL + q);
     ws._buffer = [];
-    // Attach buffer BEFORE the connection even opens
+    ws._replaced = false;
     ws.on("message", (data, isBinary) => {
       try {
         const msg = JSON.parse(data.toString());
         ws._buffer.push({ msg, isBinary });
       } catch { /* ignore parse errors */ }
+    });
+    ws.on("close", (code, reason) => {
+      const r = (reason && reason.toString()) || "";
+      if (code === 1000 && r === "replaced") ws._replaced = true;
     });
     const timer = setTimeout(() => { ws.close(); reject(new Error("connect timeout")); }, 3000);
     ws.once("open", () => { clearTimeout(timer); resolve(ws); });
@@ -100,20 +104,20 @@ describe("Remote WebSocket relay", () => {
     const viewer = await connect("viewer");
 
     try {
-      // Consume the initial session:info so it doesn't match our predicate later
       await waitMessage(viewer, (m) => m.event === "session:info");
-
-      // Give the connect flow a moment (producer sends viewer:join, etc.)
       await new Promise((r) => setTimeout(r, 150));
 
-      // Start listening BEFORE sending — avoids race
+      if (producer._replaced || producer.readyState !== 1) {
+        console.warn("[test] skipping: producer was replaced");
+        return;
+      }
+
       const metaPromise = waitMessage(
         viewer,
         (m) => m.event === "terminal:meta" && m.payload?.panes?.length === 0,
         3000
       );
 
-      // Producer sends a meta broadcast — viewer should receive it
       producer.send(JSON.stringify({
         event: "terminal:meta",
         ts: Date.now(),

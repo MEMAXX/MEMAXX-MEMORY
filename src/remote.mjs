@@ -88,10 +88,17 @@ function handleConnection(ws, role, params) {
     });
 
     ws.on("close", () => {
-      log("Producer disconnected");
-      session.producer = null;
-      session.startedAt = null;
-      broadcast(session.viewers, { event: "session:end" });
+      // Only clear session state if THIS ws is still the active producer.
+      // During producer replacement, the old ws.on("close") fires AFTER
+      // session.producer was already reassigned to the new one — we must
+      // not wipe the new producer's state.
+      if (session.producer === ws) {
+        log("Producer disconnected");
+        session.producer = null;
+        session.startedAt = null;
+        session.deviceName = null;
+        broadcast(session.viewers, { event: "session:end" });
+      }
     });
 
     ws.on("error", (err) => rlog.error({ err, role: "producer" }, "websocket error"));
