@@ -582,6 +582,170 @@ body {
 .ps-footer button:hover { background: var(--tp-surface-hover); color: var(--tp-text); border-color: var(--tp-border-hover); }
 .ps-footer button.danger:hover { color: var(--tp-error); border-color: var(--tp-error); }
 
+/* ── Polish Pass 2 ──────────────────────────────────────────────── */
+
+/* Sidebar header: subtle logo presence */
+.sidebar-header { padding: 18px 20px 12px; }
+.logo-icon { box-shadow: 0 0 24px rgba(167, 139, 250, 0.25); border-radius: 8px; }
+
+/* Nav sections: more vertical rhythm */
+.nav-section { margin-bottom: 8px; }
+.nav-section + .nav-section { margin-top: 4px; }
+.nav-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--tp-text-muted);
+  padding: 14px 14px 6px;
+  text-transform: uppercase;
+}
+
+/* Section titles: accent dot + cleaner divider */
+.section { margin-bottom: 28px; }
+.section-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tp-text-secondary);
+  margin-bottom: 14px;
+}
+.section-title::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tp-accent);
+  margin-right: 10px;
+  vertical-align: middle;
+  box-shadow: 0 0 8px var(--tp-accent-ring);
+}
+.section-title::after {
+  background: linear-gradient(90deg, var(--tp-border), transparent);
+}
+
+/* Page header: consistent + breathable */
+.page-header { margin-bottom: 24px; padding-bottom: 4px; }
+.page-title { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+.page-desc { font-size: 13px; color: var(--tp-text-secondary); margin-top: 4px; }
+
+/* Cards: refined hover (purple glow) */
+.card { transition: border-color 180ms, box-shadow 220ms, transform 180ms; }
+.card:hover {
+  border-color: rgba(167, 139, 250, 0.3);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(167, 139, 250, 0.06);
+}
+
+/* Stat cards: gradient strip + refined hover */
+.stat-card::before { width: 3px; border-radius: 0; transition: width 180ms; }
+.stat-card:hover::before { width: 5px; }
+.stat-card.stat-purple::before { background: linear-gradient(180deg, var(--tp-purple), #818CF8); }
+.stat-card.stat-blue::before { background: linear-gradient(180deg, var(--tp-info), #60a5fa); }
+.stat-card.stat-green::before { background: linear-gradient(180deg, var(--tp-success), #4ade80); }
+.stat-card.stat-red::before { background: linear-gradient(180deg, var(--tp-error), #f87171); }
+.stat-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+/* Empty states: bigger, friendlier, gradient-ringed icon */
+.empty-state {
+  padding: 48px 24px;
+  text-align: center;
+}
+.empty-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 76px; height: 76px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--tp-accent-soft) 0%, transparent 70%);
+  margin: 0 auto 16px;
+  opacity: 1;
+  color: var(--tp-accent);
+}
+.empty-icon .ph-duotone, .empty-icon [class*="ph-"] { font-size: 40px; }
+.empty-title { font-size: 14px; font-weight: 600; color: var(--tp-text); margin-bottom: 6px; }
+.empty-desc { font-size: 12px; color: var(--tp-text-muted); max-width: 360px; margin: 0 auto; line-height: 1.5; }
+
+/* Memory cards: subtle accent on hover + better spacing */
+.memory-card { transition: border-color 150ms, background 150ms, transform 150ms; }
+.memory-card:hover {
+  border-color: rgba(167, 139, 250, 0.3);
+  background: var(--tp-surface-hover);
+}
+
+/* Buttons: subtle press state */
+.btn { transition: all 140ms; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+
+/* Pill-style badges already exist — tighten the colors */
+.badge { font-weight: 600; letter-spacing: 0.02em; }
+
+/* Tag pills: cleaner */
+.tag {
+  background: var(--tp-surface-hover);
+  border: 1px solid var(--tp-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--tp-text-secondary);
+  display: inline-block;
+  margin-right: 4px;
+  margin-bottom: 4px;
+}
+
+/* Code blocks: tighter monospace, subtle accent border */
+.code-block {
+  background: var(--tp-bg);
+  border: 1px solid var(--tp-border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-family: ui-monospace, "SF Mono", Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--tp-text);
+  position: relative;
+  overflow-x: auto;
+}
+.copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  background: var(--tp-surface);
+  border: 1px solid var(--tp-border);
+  border-radius: 6px;
+  color: var(--tp-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 140ms;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.copy-btn:hover { background: var(--tp-accent-soft); color: var(--tp-accent); border-color: var(--tp-accent); }
+
+/* Onboarding rocket emphasis */
+.onboarding-check { opacity: 0; animation: mx-fade-in 0.4s ease forwards; }
+.onboarding-check:nth-child(2) { animation-delay: 0.1s; }
+.onboarding-check:nth-child(3) { animation-delay: 0.2s; }
+.onboarding-check:nth-child(4) { animation-delay: 0.3s; }
+
+/* Inputs: refined */
+.input { transition: border-color 140ms, box-shadow 140ms, background 140ms; }
+.input:hover:not(:focus) { border-color: var(--tp-border-hover); }
+
+/* Page content: subtle fade-in on navigation */
+#content > * { animation: mx-page-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes mx-page-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* Scrollbar polish (webkit) */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--tp-bg); }
+::-webkit-scrollbar-thumb { background: var(--tp-border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--tp-border-hover); }
+
 .select {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23555' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
