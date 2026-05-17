@@ -778,6 +778,7 @@ async function startHttpServer() {
       ["DELETE", "/api/backups/:filename", wrapAsyncNoProject(dashApi.deleteBackup)],
       ["POST", "/api/restart", wrapAsyncNoProject(dashApi.restartServer)],
       ["GET", "/api/health-full", wrapAsyncNoProject(dashApi.getFullHealth)],
+      ["GET", "/api/mcp-tools", wrapAsyncNoProject(dashApi.listMcpTools)],
     ];
 
     return defs.map(([method, pattern, handler]) => {

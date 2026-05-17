@@ -1515,6 +1515,17 @@ export async function restartServer() {
   return { success: true, message: "Server is restarting. Will be back in a few seconds." };
 }
 
+// ── MCP tool catalog (name + description for Setup page) ─────────────
+
+export async function listMcpTools() {
+  const tools = await import("../tools.mjs");
+  const defs = tools.TOOL_DEFINITIONS || [];
+  return {
+    count: defs.length,
+    tools: defs.map(t => ({ name: t.name, description: t.description })),
+  };
+}
+
 // ── Full health (proxies what bin.mjs /health returns, via SQL) ──────
 
 export async function getFullHealth() {

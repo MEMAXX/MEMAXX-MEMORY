@@ -35,9 +35,7 @@ export function renderPage(opts = {}) {
           <span class="logo-text">MEMAXX<span class="logo-sub">Memory</span></span>
         </div>
       </div>
-      <div id="project-switcher" class="nav-section" style="display:none;padding:0 12px">
-        <div class="nav-label">Project</div>
-      </div>
+      <div id="project-switcher" class="ps-wrap" style="display:none"></div>
       <div class="nav-section">
         <div class="nav-label">General</div>
         <a class="nav-item" href="#/" data-page="overview"><i class="ph-duotone ph-squares-four"></i>Overview</a>
@@ -54,6 +52,7 @@ export function renderPage(opts = {}) {
       </div>
       <div class="nav-section">
         <div class="nav-label">System</div>
+        <a class="nav-item" href="#/setup" data-page="setup"><i class="ph-duotone ph-plug-charging"></i>Setup</a>
         <a class="nav-item" href="#/sync" data-page="sync"><i class="ph-duotone ph-database"></i>Data</a>
         <a class="nav-item" href="#/settings" data-page="settings"><i class="ph-duotone ph-gear-six"></i>Settings</a>
       </div>
@@ -479,6 +478,109 @@ body {
 
 /* ── Toast slide-up ─────────────────────────────────────────────── */
 @keyframes mx-toast { from { opacity: 0; transform: translateX(-50%) translateY(20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+/* ── Project Switcher ───────────────────────────────────────────── */
+.ps-wrap { position: relative; padding: 12px 12px 8px; margin-top: 4px; }
+.ps-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--tp-surface);
+  border: 1px solid var(--tp-border);
+  border-radius: 10px;
+  color: var(--tp-text);
+  cursor: pointer;
+  transition: border-color 150ms, background 150ms;
+  text-align: left;
+  font-family: inherit;
+}
+.ps-btn:hover { border-color: var(--tp-border-hover); background: var(--tp-surface-hover); }
+.ps-btn.open { border-color: var(--tp-accent); box-shadow: 0 0 0 3px var(--tp-accent-ring); }
+.ps-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--tp-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0a0a0a;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.ps-info { flex: 1; min-width: 0; }
+.ps-name { font-size: 13px; font-weight: 600; color: var(--tp-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps-meta { font-size: 11px; color: var(--tp-text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps-chevron { color: var(--tp-text-muted); font-size: 14px; flex-shrink: 0; }
+.ps-btn.open .ps-chevron { color: var(--tp-accent); }
+
+.ps-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 12px;
+  right: 12px;
+  background: var(--tp-surface);
+  border: 1px solid var(--tp-border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  z-index: 100;
+  max-height: 60vh;
+  overflow-y: auto;
+  animation: mx-slide-up 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ps-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+  border-radius: 6px;
+  margin: 4px;
+  transition: background 100ms;
+}
+.ps-item:hover { background: var(--tp-surface-hover); }
+.ps-item.active { background: var(--tp-accent-soft); }
+.ps-item-avatar {
+  width: 24px; height: 24px; border-radius: 6px;
+  background: var(--tp-surface-hover);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: var(--tp-text-secondary);
+  flex-shrink: 0; text-transform: uppercase;
+}
+.ps-item.active .ps-item-avatar { background: var(--tp-gradient); color: #0a0a0a; }
+.ps-item-info { flex: 1; min-width: 0; }
+.ps-item-name { font-size: 12px; font-weight: 500; color: var(--tp-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps-item-meta { font-size: 10px; color: var(--tp-text-muted); }
+.ps-item-check { color: var(--tp-accent); font-size: 14px; }
+.ps-footer {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--tp-border);
+  margin-top: 4px;
+}
+.ps-footer button {
+  flex: 1;
+  padding: 6px 8px;
+  background: none;
+  border: 1px solid var(--tp-border);
+  border-radius: 6px;
+  color: var(--tp-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-family: inherit;
+}
+.ps-footer button:hover { background: var(--tp-surface-hover); color: var(--tp-text); border-color: var(--tp-border-hover); }
+.ps-footer button.danger:hover { color: var(--tp-error); border-color: var(--tp-error); }
 
 .select {
   appearance: none;
@@ -1293,6 +1395,7 @@ function navigate() {
     case 'thinking': renderThinking(content); break;
     case 'rules': renderRules(content); break;
     case 'docs': renderDocs(content); break;
+    case 'setup': renderSetup(content); break;
     case 'sync': renderSync(content); break;
     case 'settings': renderSettings(content); break;
     default: renderOverview(content);
@@ -1369,42 +1472,118 @@ async function apiDelete(path) {
   return res.json();
 }
 
+function projectInitials(p) {
+  const name = p.project_name || p.project_hash || '?';
+  const words = name.split(/[\\s-_./]+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
 function renderProjectSwitcher() {
   const container = document.getElementById('project-switcher');
   if (!container || allProjects.length === 0) return;
-  const opts = allProjects.map(p =>
-    '<option value="' + p.project_hash + '"' + (activeProject && activeProject.project_hash === p.project_hash ? ' selected' : '') + '>'
-    + esc(p.project_name || p.project_hash.slice(0, 8)) + ' (' + p.memory_count + ')'
-    + '</option>'
-  ).join('');
-  container.innerHTML = '<div style="display:flex;gap:4px;align-items:center">'
-    + '<select id="project-select" style="flex:1;padding:6px 8px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:12px">' + opts + '</select>'
-    + '<button id="rename-project-btn" style="padding:4px 6px;border-radius:6px;background:none;border:1px solid var(--tp-border);color:var(--tp-text-secondary);cursor:pointer;font-size:11px" title="Rename project"><i class="ph-duotone ph-pencil-simple"></i></button>'
-    + '</div>';
+  const ap = activeProject || allProjects[0];
+  const apName = ap.project_name || ap.project_hash.slice(0, 8);
+  const apMeta = ap.memory_count + ' memories · ' + ap.entity_count + ' entities';
+
+  container.innerHTML = \`
+    <button class="ps-btn" id="ps-btn" onclick="toggleProjectDropdown()">
+      <div class="ps-avatar">\${esc(projectInitials(ap))}</div>
+      <div class="ps-info">
+        <div class="ps-name">\${esc(apName)}</div>
+        <div class="ps-meta">\${esc(apMeta)}</div>
+      </div>
+      <i class="ph-duotone ph-caret-up-down ps-chevron"></i>
+    </button>
+    <div class="ps-dropdown" id="ps-dropdown" style="display:none">
+      \${allProjects.map(p => {
+        const isActive = p.project_hash === ap.project_hash;
+        const name = p.project_name || p.project_hash.slice(0, 8);
+        return \`
+          <div class="ps-item \${isActive ? 'active' : ''}" onclick="switchProject('\${esc(p.project_hash)}')">
+            <div class="ps-item-avatar">\${esc(projectInitials(p))}</div>
+            <div class="ps-item-info">
+              <div class="ps-item-name">\${esc(name)}</div>
+              <div class="ps-item-meta">\${p.memory_count} memories · \${p.entity_count} entities</div>
+            </div>
+            \${isActive ? '<i class="ph-duotone ph-check ps-item-check"></i>' : ''}
+          </div>\`;
+      }).join('')}
+      <div class="ps-footer">
+        <button onclick="renameActiveProject()" title="Rename current project"><i class="ph-duotone ph-pencil-simple"></i>Rename</button>
+        <button class="danger" onclick="deleteActiveProject()" title="Delete current project + all its data"><i class="ph-duotone ph-trash"></i>Delete</button>
+      </div>
+    </div>
+  \`;
   container.style.display = 'block';
-  document.getElementById('project-select').addEventListener('change', (e) => {
-    activeProject = allProjects.find(p => p.project_hash === e.target.value) || allProjects[0];
-    currentPage = ''; // force re-render
-    navigate();
-  });
-  document.getElementById('rename-project-btn').addEventListener('click', async () => {
-    if (!activeProject) return;
-    const current = activeProject.project_name || activeProject.project_hash.slice(0, 8);
-    const newName = prompt('Rename project:', current);
-    if (!newName || newName.trim() === current) return;
-    try {
-      await fetch('/api/projects/rename', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_hash: activeProject.project_hash, name: newName.trim() })
-      });
-      activeProject.project_name = newName.trim();
-      const idx = allProjects.findIndex(p => p.project_hash === activeProject.project_hash);
-      if (idx >= 0) allProjects[idx].project_name = newName.trim();
-      renderProjectSwitcher();
-    } catch {}
-  });
 }
+
+window.toggleProjectDropdown = () => {
+  const dd = document.getElementById('ps-dropdown');
+  const btn = document.getElementById('ps-btn');
+  if (!dd || !btn) return;
+  const open = dd.style.display === 'block';
+  dd.style.display = open ? 'none' : 'block';
+  btn.classList.toggle('open', !open);
+};
+
+document.addEventListener('click', (e) => {
+  const wrap = document.getElementById('project-switcher');
+  if (!wrap || !wrap.contains(e.target)) {
+    const dd = document.getElementById('ps-dropdown');
+    const btn = document.getElementById('ps-btn');
+    if (dd) dd.style.display = 'none';
+    if (btn) btn.classList.remove('open');
+  }
+});
+
+window.switchProject = (hash) => {
+  const p = allProjects.find(x => x.project_hash === hash);
+  if (!p) return;
+  activeProject = p;
+  currentPage = '';
+  document.getElementById('ps-dropdown').style.display = 'none';
+  document.getElementById('ps-btn')?.classList.remove('open');
+  renderProjectSwitcher();
+  navigate();
+};
+
+window.renameActiveProject = async () => {
+  if (!activeProject) return;
+  const current = activeProject.project_name || activeProject.project_hash.slice(0, 8);
+  const newName = prompt('Rename project:', current);
+  if (!newName || newName.trim() === current) return;
+  try {
+    await fetch('/api/projects/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_hash: activeProject.project_hash, name: newName.trim() })
+    });
+    activeProject.project_name = newName.trim();
+    const idx = allProjects.findIndex(p => p.project_hash === activeProject.project_hash);
+    if (idx >= 0) allProjects[idx].project_name = newName.trim();
+    renderProjectSwitcher();
+    toast('Project renamed', 'success');
+  } catch (e) { toast('Rename failed: ' + e.message, 'error'); }
+};
+
+window.deleteActiveProject = async () => {
+  if (!activeProject) return;
+  const name = activeProject.project_name || activeProject.project_hash.slice(0, 8);
+  if (!confirm('Delete project "' + name + '" and ALL its memories, entities, tasks, postmortems? This cannot be undone.')) return;
+  try {
+    const res = await apiDelete('/api/projects/' + encodeURIComponent(activeProject.project_hash));
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast('Project deleted', 'success');
+    // Reload projects list + switch to first remaining
+    allProjects = allProjects.filter(p => p.project_hash !== activeProject.project_hash);
+    activeProject = allProjects[0] || null;
+    if (!activeProject) { location.reload(); return; }
+    currentPage = '';
+    renderProjectSwitcher();
+    navigate();
+  } catch (e) { toast('Delete failed: ' + e.message, 'error'); }
+};
 
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -2998,6 +3177,189 @@ window.showDoc = async (id) => {
       } catch (e2) { toast('Failed: ' + e2.message, 'error'); }
     });
   } catch (e) { toast('Load failed: ' + e.message, 'error'); }
+};
+
+// ── Setup Page (MCP commands + tool catalog + full system prompt) ──
+
+async function renderSetup(el) {
+  const url = window.location.origin + '/mcp';
+  el.innerHTML = \`
+    <div class="page-header">
+      <h1 class="page-title">Setup</h1>
+      <p class="page-desc">Connect your AI tools to MEMAXX and review the available MCP commands</p>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">MCP Server URL</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <code style="flex:1;padding:10px 12px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-family:ui-monospace,monospace;font-size:13px" id="setup-url-text">\${esc(url)}</code>
+        <button class="btn btn-secondary" onclick="copySetupUrl(this)"><i class="ph-duotone ph-copy"></i>Copy</button>
+      </div>
+      <div class="text-xs text-muted" style="margin-top:8px">Streamable HTTP transport. Same URL works for Claude Code, Claude Desktop, Cursor, Windsurf, and any MCP-compatible client.</div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Client Configuration</div>
+      <div class="card">
+        <div class="flex gap-2" style="margin-bottom:14px;flex-wrap:wrap">
+          <button class="btn btn-secondary mcp-tab active" onclick="setupTab('claude', this)">Claude Code</button>
+          <button class="btn btn-secondary mcp-tab" onclick="setupTab('desktop', this)">Claude Desktop</button>
+          <button class="btn btn-secondary mcp-tab" onclick="setupTab('cursor', this)">Cursor</button>
+          <button class="btn btn-secondary mcp-tab" onclick="setupTab('windsurf', this)">Windsurf</button>
+          <button class="btn btn-secondary mcp-tab" onclick="setupTab('manual', this)">Raw JSON</button>
+        </div>
+
+        <div id="setup-tab-claude">
+          <div class="text-xs text-secondary" style="margin-bottom:6px">One command (recommended):</div>
+          <div class="code-block" style="margin-bottom:14px">claude mcp add --transport http memaxx-memory \${esc(url)}<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+          <div class="text-xs text-secondary" style="margin-bottom:6px">…or add to <code>~/.claude.json</code> manually:</div>
+          <div class="code-block">{
+  "mcpServers": {
+    "memaxx-memory": {
+      "type": "http",
+      "url": "\${esc(url)}"
+    }
+  }
+}<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+        </div>
+
+        <div id="setup-tab-desktop" style="display:none">
+          <div class="text-xs text-secondary" style="margin-bottom:6px">Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS) or <code>%APPDATA%/Claude/claude_desktop_config.json</code> (Windows):</div>
+          <div class="code-block">{
+  "mcpServers": {
+    "memaxx-memory": {
+      "type": "http",
+      "url": "\${esc(url)}"
+    }
+  }
+}<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+        </div>
+
+        <div id="setup-tab-cursor" style="display:none">
+          <div class="text-xs text-secondary" style="margin-bottom:6px">Add to <code>~/.cursor/mcp.json</code> (or per-project <code>.cursor/mcp.json</code>):</div>
+          <div class="code-block">{
+  "mcpServers": {
+    "memaxx-memory": {
+      "url": "\${esc(url)}"
+    }
+  }
+}<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+        </div>
+
+        <div id="setup-tab-windsurf" style="display:none">
+          <div class="text-xs text-secondary" style="margin-bottom:6px">Add to <code>~/.codeium/windsurf/mcp_config.json</code>:</div>
+          <div class="code-block">{
+  "mcpServers": {
+    "memaxx-memory": {
+      "serverUrl": "\${esc(url)}"
+    }
+  }
+}<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+        </div>
+
+        <div id="setup-tab-manual" style="display:none">
+          <div class="text-xs text-secondary" style="margin-bottom:6px">Generic streamable-HTTP MCP config:</div>
+          <div class="code-block">{
+  "mcpServers": {
+    "memaxx-memory": {
+      "transport": "http",
+      "url": "\${esc(url)}"
+    }
+  }
+}<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Available MCP Tools <span id="setup-tool-count" class="badge badge-purple">…</span></div>
+      <div class="card">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <input id="setup-tool-search" class="input" placeholder="Filter tools…" style="flex:1" oninput="filterSetupTools(this.value)" />
+          <span id="setup-tool-shown" class="text-xs text-muted"></span>
+        </div>
+        <div id="setup-tools-list"><div class="text-xs text-muted">Loading…</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">System Prompt for CLAUDE.md</div>
+      <div class="card">
+        <div class="text-xs text-secondary" style="margin-bottom:10px">Paste this into your project's <code>CLAUDE.md</code> so the AI uses all tools correctly — searching before changes, storing after tasks, postmortems after bugs.</div>
+        <div class="code-block" style="max-height:520px;overflow-y:auto;font-size:11px;line-height:1.55;white-space:pre-wrap;position:relative">
+          <pre id="setup-prompt-box" style="margin:0;padding:0;white-space:pre-wrap;font-family:inherit;font-size:inherit;line-height:inherit">Loading full prompt…</pre>
+          <button class="copy-btn" onclick="copySetupPrompt(this)"><i class="ph-duotone ph-copy"></i>Copy</button>
+        </div>
+      </div>
+    </div>
+  \`;
+
+  // Load tools catalog
+  try {
+    const data = await api('/api/mcp-tools');
+    const tools = data.tools || [];
+    window._setupTools = tools;
+    document.getElementById('setup-tool-count').textContent = tools.length;
+    renderSetupToolsList(tools);
+  } catch (e) {
+    document.getElementById('setup-tools-list').innerHTML = '<div class="text-xs" style="color:var(--tp-error)">Failed to load tools: ' + esc(e.message) + '</div>';
+  }
+
+  // Load system prompt
+  fetch('/api/system-prompt')
+    .then(r => r.text())
+    .then(text => { document.getElementById('setup-prompt-box').textContent = text; })
+    .catch(() => { document.getElementById('setup-prompt-box').textContent = 'Failed to load — see SYSTEM_PROMPT.md in repo.'; });
+}
+
+function renderSetupToolsList(tools) {
+  const el = document.getElementById('setup-tools-list');
+  if (!el) return;
+  if (tools.length === 0) { el.innerHTML = '<div class="text-xs text-muted" style="padding:12px;text-align:center">No tools match.</div>'; return; }
+  el.innerHTML = tools.map(t => \`
+    <div style="display:grid;grid-template-columns:240px 1fr;gap:14px;padding:8px 0;border-bottom:1px solid var(--tp-border);align-items:start">
+      <code style="font-family:ui-monospace,monospace;font-size:12px;color:var(--tp-accent);background:var(--tp-accent-soft);padding:3px 8px;border-radius:6px;display:inline-block;width:fit-content">\${esc(t.name)}</code>
+      <div style="font-size:12px;color:var(--tp-text-secondary);line-height:1.5">\${esc(t.description || '')}</div>
+    </div>
+  \`).join('');
+  const shown = document.getElementById('setup-tool-shown');
+  if (shown) shown.textContent = tools.length + ' of ' + (window._setupTools?.length || tools.length);
+}
+
+window.filterSetupTools = (q) => {
+  const tools = window._setupTools || [];
+  const lq = q.trim().toLowerCase();
+  const filtered = lq ? tools.filter(t => t.name.toLowerCase().includes(lq) || (t.description || '').toLowerCase().includes(lq)) : tools;
+  renderSetupToolsList(filtered);
+};
+
+window.setupTab = (which, btn) => {
+  ['claude', 'desktop', 'cursor', 'windsurf', 'manual'].forEach(t => {
+    const tab = document.getElementById('setup-tab-' + t);
+    if (tab) tab.style.display = t === which ? 'block' : 'none';
+  });
+  btn.parentElement.querySelectorAll('.mcp-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+};
+
+window.copySetupUrl = (btn) => {
+  const url = document.getElementById('setup-url-text')?.textContent || '';
+  navigator.clipboard.writeText(url).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="ph-duotone ph-check"></i>Copied';
+    setTimeout(() => { btn.innerHTML = orig; }, 1500);
+  });
+};
+
+window.copySetupPrompt = (btn) => {
+  const box = document.getElementById('setup-prompt-box');
+  const text = box && box.textContent && !box.textContent.startsWith('Loading') ? box.textContent : '';
+  if (!text) { toast('Still loading prompt…', 'info'); return; }
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="ph-duotone ph-check"></i>Copied';
+    setTimeout(() => { btn.innerHTML = orig; }, 1500);
+  });
 };
 
 // ── Graph tools (timeline, at-time, path, contradictions, consolidate, invalidate) ──
