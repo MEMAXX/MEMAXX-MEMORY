@@ -2302,10 +2302,7 @@ async function renderSettings(el) {
       const model = document.getElementById('cfg-model').value;
       const baseUrl = document.getElementById('cfg-base-url')?.value || '';
       try {
-        const res = await api('/api/provider/test', {
-          method: 'POST',
-          body: JSON.stringify({ provider: prov, api_key: key || 'from-env', model, base_url: baseUrl }),
-        });
+        const res = await apiPost('/api/provider/test', { provider: prov, api_key: key || 'from-env', model, base_url: baseUrl });
         if (res.success) {
           status.innerHTML = '&#x2713; Connected! Dimension: ' + res.dimension;
           status.style.color = '#22c55e';
@@ -2331,7 +2328,7 @@ async function renderSettings(el) {
       if (model) body.embedding_model = model;
       if (baseUrl) body.embedding_base_url = baseUrl;
       try {
-        const res = await api('/api/provider', { method: 'POST', body: JSON.stringify(body) });
+        const res = await apiPost('/api/provider', body);
         status.innerHTML = res.success ? '&#x2713; Saved! Restart server to apply.' : 'Error';
         status.style.color = res.success ? '#22c55e' : '#ef4444';
       } catch (e) { status.textContent = e.message; status.style.color = '#ef4444'; }
@@ -2349,7 +2346,7 @@ async function renderSettings(el) {
       if (model) body.llm_model = model;
       if (key) body.llm_api_key = key;
       try {
-        const res = await api('/api/provider', { method: 'POST', body: JSON.stringify(body) });
+        const res = await apiPost('/api/provider', body);
         status.innerHTML = res.success ? '&#x2713; Saved!' : 'Error';
         status.style.color = res.success ? '#22c55e' : '#ef4444';
       } catch (e) { status.textContent = e.message; status.style.color = '#ef4444'; }
@@ -2639,21 +2636,7 @@ function showOnboarding() {
           Copy this into your project's <strong>CLAUDE.md</strong> so your AI uses all 33 MCP tools correctly:
           searching before changes, storing after tasks, running postmortems after bugs.
         </div>
-        <div class="code-block" style="max-height:220px;overflow-y:auto;font-size:11px;line-height:1.5;white-space:pre-wrap">## MEMAXX Memory &mdash; MANDATORY
-
-### HARD RULES
-1. FIRST action: memory_init
-2. BEFORE code changes: memory_search
-3. AFTER tasks: memory_store
-4. BEFORE bug fix: memory_postmortem_warnings
-5. AFTER bug fix: memory_postmortem
-
-### Key Tools (33 total)
-memory_init, memory_store, memory_search, smart_context,
-memory_graph_explore, memory_postmortem, memory_tasks,
-memory_start_thinking, memory_upload_document...
-
-Full prompt: SYSTEM_PROMPT.md in the repo<button class="copy-btn" onclick="copySystemPrompt(this)">Copy Full Prompt</button></div>
+        <div class="code-block" style="max-height:480px;overflow-y:auto;font-size:11px;line-height:1.5;white-space:pre-wrap"><pre id="full-prompt-box" style="margin:0;padding:0;white-space:pre-wrap;font-family:inherit;font-size:inherit;line-height:inherit">Loading full prompt…</pre><button class="copy-btn" onclick="copySystemPrompt(this)">Copy</button></div>
       \`
     },
     // Step 5: Done
@@ -2709,6 +2692,13 @@ Full prompt: SYSTEM_PROMPT.md in the repo<button class="copy-btn" onclick="copyS
         </div>
       </div>
     \`;
+    const box = document.getElementById('full-prompt-box');
+    if (box) {
+      fetch('/api/system-prompt')
+        .then(r => r.text())
+        .then(text => { box.textContent = text; })
+        .catch(() => { box.textContent = 'Failed to load full prompt — see SYSTEM_PROMPT.md in the repo.'; });
+    }
   }
 
   window.onboardingNext = () => { if (step < steps.length - 1) { step++; render(); } };
@@ -2820,14 +2810,15 @@ Full prompt: SYSTEM_PROMPT.md in the repo<button class="copy-btn" onclick="copyS
     });
   };
   window.copySystemPrompt = (btn) => {
-    fetch('/api/system-prompt').then(r => r.text()).then(text => {
-      navigator.clipboard.writeText(text).then(() => {
-        btn.textContent = 'Copied!';
-        setTimeout(() => btn.textContent = 'Copy Full Prompt', 1500);
-      });
+    const box = document.getElementById('full-prompt-box');
+    const text = box && box.textContent && !box.textContent.startsWith('Loading') ? box.textContent : '';
+    if (!text) { btn.textContent = 'Loading…'; setTimeout(() => btn.textContent = 'Copy', 1500); return; }
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy', 1500);
     }).catch(() => {
       btn.textContent = 'Error';
-      setTimeout(() => btn.textContent = 'Copy Full Prompt', 1500);
+      setTimeout(() => btn.textContent = 'Copy', 1500);
     });
   };
 
