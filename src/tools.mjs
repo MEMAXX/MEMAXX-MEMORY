@@ -921,9 +921,12 @@ async function handleGraphExplore(args, ph) {
   const entityName = args.query || args.entity_name;
   if (!entityName) return err("query (entity name) is required.");
 
+  // Embedding column is huge (~19KB per row) and not useful in the response
+  const ENTITY_COLS = "id, project_hash, name, type, description, confidence, is_valid, created_at, updated_at";
+
   // Find root entity
   const rootRes = await query(
-    "SELECT * FROM entities WHERE project_hash = $1 AND LOWER(name) = LOWER($2) AND is_valid = TRUE",
+    `SELECT ${ENTITY_COLS} FROM entities WHERE project_hash = $1 AND LOWER(name) = LOWER($2) AND is_valid = TRUE`,
     [ph, entityName]
   );
   const root = rootRes.rows[0];
@@ -954,7 +957,7 @@ async function handleGraphExplore(args, ph) {
       for (const neighborId of [rel.source_id, rel.target_id]) {
         if (!visited.has(neighborId)) {
           visited.add(neighborId);
-          const entityRes = await query("SELECT * FROM entities WHERE id = $1", [neighborId]);
+          const entityRes = await query(`SELECT ${ENTITY_COLS} FROM entities WHERE id = $1`, [neighborId]);
           const entity = entityRes.rows[0];
           if (entity) {
             nodes.push({ ...entity, depth: d + 1 });
@@ -1059,19 +1062,23 @@ async function handleGraphPath(args, ph) {
 }
 
 async function handleGraphInvalidate(args, ph) {
-  await query(
-    "UPDATE entities SET is_valid = FALSE, updated_at = NOW() WHERE project_hash = $1 AND LOWER(name) = LOWER($2)",
+  if (!args.entity_name) return err("entity_name is required.");
+  const res = await query(
+    "UPDATE entities SET is_valid = FALSE, updated_at = NOW() WHERE project_hash = $1 AND LOWER(name) = LOWER($2) RETURNING id",
     [ph, args.entity_name]
   );
-  return ok({ invalidated: true });
+  if (res.rowCount === 0) return err(`Entity "${args.entity_name}" not found.`);
+  return ok({ invalidated: true, entity_name: args.entity_name });
 }
 
 async function handleGraphInvalidateRelation(args, ph) {
-  await query(
-    "UPDATE relations SET is_valid = FALSE, valid_to = NOW() WHERE id = $1",
-    [args.relation_id]
+  if (!args.relation_id) return err("relation_id is required.");
+  const res = await query(
+    "UPDATE relations SET is_valid = FALSE, valid_to = NOW() WHERE id = $1 AND project_hash = $2 RETURNING id",
+    [args.relation_id, ph]
   );
-  return ok({ invalidated: true });
+  if (res.rowCount === 0) return err(`Relation "${args.relation_id}" not found.`);
+  return ok({ invalidated: true, relation_id: args.relation_id });
 }
 
 // ── Thinking ─────────────────────────────────────────────────────────
@@ -1497,8 +1504,12 @@ async function handleGraphTimeline(args, ph) {
     }
   }
 
-  // Sort by event_time descending
-  events.sort((a, b) => (b.event_time || "").localeCompare(a.event_time || ""));
+  // Sort by event_time descending (event_time may be Date or ISO string)
+  events.sort((a, b) => {
+    const ta = a.event_time ? new Date(a.event_time).getTime() : 0;
+    const tb = b.event_time ? new Date(b.event_time).getTime() : 0;
+    return tb - ta;
+  });
 
   const limited = events.slice(0, limit);
   return ok({ entity: entity.name, timeline: limited, count: limited.length });
@@ -2301,7 +2312,7 @@ async function handleExportForMigration(args, ph) {
   `, [ph]);
 
   const relationsRes = await query(`
-    SELECT s.name as source, t.name as target, r.relation_type, r.weight
+    SELECT s.name as source, t.name as target, r.relation as relation_type, r.confidence as weight
     FROM relations r
     JOIN entities s ON r.source_id = s.id
     JOIN entities t ON r.target_id = t.id
@@ -2314,7 +2325,7 @@ async function handleExportForMigration(args, ph) {
   );
 
   const rulesRes = await query(
-    "SELECT content, category, severity FROM rules WHERE project_hash = $1 AND is_active = TRUE",
+    "SELECT content, priority FROM rules WHERE project_hash = $1 AND is_active = TRUE",
     [ph]
   );
 
