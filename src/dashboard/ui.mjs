@@ -746,6 +746,132 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--tp-border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--tp-border-hover); }
 
+/* ── Polish Pass 3 ──────────────────────────────────────────────── */
+
+/* MCP tabs: pill style with active = purple + indicator */
+.mcp-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--tp-text-secondary);
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 160ms;
+  position: relative;
+}
+.mcp-tab:hover {
+  color: var(--tp-text);
+  background: var(--tp-surface-hover);
+}
+.mcp-tab.active {
+  color: var(--tp-accent);
+  background: var(--tp-accent-soft);
+  border-color: rgba(167, 139, 250, 0.25);
+}
+
+/* Code blocks: subtle accent top edge + better hover */
+.code-block {
+  background: linear-gradient(180deg, rgba(167, 139, 250, 0.04), var(--tp-bg) 24px), var(--tp-bg);
+}
+.code-block::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--tp-accent), transparent);
+  opacity: 0.4;
+}
+
+/* Memory cards: deeper hover with subtle accent line */
+.memory-card {
+  position: relative;
+  overflow: hidden;
+}
+.memory-card::after {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--tp-gradient);
+  opacity: 0;
+  transition: opacity 180ms;
+}
+.memory-card:hover::after { opacity: 0.7; }
+
+/* Importance bar: gradient fill with subtle shimmer */
+.importance-bar {
+  width: 56px;
+  height: 4px;
+  background: var(--tp-border);
+  border-radius: 4px;
+}
+.importance-fill {
+  background: linear-gradient(90deg, var(--tp-accent), #818CF8) !important;
+  box-shadow: 0 0 6px rgba(167, 139, 250, 0.4);
+}
+
+/* Primary button: subtle gradient + hover scale */
+.btn-primary {
+  background: linear-gradient(180deg, #B89AFC, var(--tp-accent));
+  border-color: var(--tp-accent);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset;
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background: linear-gradient(180deg, #C5ABFC, #B89AFC);
+  box-shadow: 0 0 0 1px var(--tp-accent), 0 4px 14px rgba(167, 139, 250, 0.35);
+}
+
+/* Badges: more punch via stronger border-radius + inset border */
+.badge {
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset;
+}
+
+/* Postmortem card: cleaner expand affordance */
+.postmortem-card { cursor: pointer; transition: border-color 150ms, transform 150ms; }
+.postmortem-card:hover { border-color: var(--tp-accent); }
+.severity-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.severity-dot.severity-low { background: var(--tp-success); box-shadow: 0 0 6px rgba(34,197,94,0.4); }
+.severity-dot.severity-medium { background: var(--tp-warning); box-shadow: 0 0 6px rgba(234,179,8,0.4); }
+.severity-dot.severity-high { background: var(--tp-error); box-shadow: 0 0 6px rgba(239,68,68,0.4); }
+.severity-dot.severity-critical { background: var(--tp-error); box-shadow: 0 0 12px var(--tp-error); animation: mx-pulse 2s ease-in-out infinite; }
+@keyframes mx-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }
+
+/* Stat-card values: deliberate animation entry */
+.stat-card .card-value {
+  background: linear-gradient(180deg, var(--tp-text), #aaa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Modal: heightened drama */
+.mx-modal {
+  box-shadow: 0 28px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(167, 139, 250, 0.08);
+}
+.mx-modal-backdrop { background: radial-gradient(ellipse at top, rgba(167, 139, 250, 0.08), rgba(0, 0, 0, 0.75)); }
+
+/* Focus-visible rings on links (a11y) */
+.nav-item:focus-visible { outline: 2px solid var(--tp-accent); outline-offset: 2px; }
+
+/* Health card: stat row with subtle dividers */
+#health-card > div > div { padding: 4px 0; }
+
+/* Tasks section title with badge: align nicely */
+.section-title .badge { margin-left: 8px; vertical-align: middle; }
+
 .select {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23555' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
