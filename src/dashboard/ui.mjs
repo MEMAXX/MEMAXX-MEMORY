@@ -70,12 +70,16 @@ export function renderPage(opts = {}) {
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           Rules
         </a>
+        <a class="nav-item" href="#/docs" data-page="docs">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+          Project Docs
+        </a>
       </div>
       <div class="nav-section">
         <div class="nav-label">System</div>
         <a class="nav-item" href="#/sync" data-page="sync">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
-          Export / Import
+          Data
         </a>
         <a class="nav-item" href="#/settings" data-page="settings">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -475,6 +479,9 @@ body {
 
 .input:focus { border-color: var(--tp-border-hover); }
 .input::placeholder { color: var(--tp-text-muted); }
+.mx-label { display: block; font-size: 11px; font-weight: 600; color: var(--tp-text-secondary); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+.mx-modal-backdrop { animation: mx-fade-in 0.15s ease; }
+@keyframes mx-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 .select {
   appearance: none;
@@ -1286,6 +1293,7 @@ function navigate() {
     case 'postmortems': renderPostmortems(content); break;
     case 'thinking': renderThinking(content); break;
     case 'rules': renderRules(content); break;
+    case 'docs': renderDocs(content); break;
     case 'sync': renderSync(content); break;
     case 'settings': renderSettings(content); break;
     default: renderOverview(content);
@@ -1522,9 +1530,12 @@ async function renderMemories(el) {
       'context', 'bug', 'document-chunk'];
 
     el.innerHTML = \`
-      <div class="page-header">
-        <h1 class="page-title">Memories</h1>
-        <p class="page-desc">\${data.total || 0} memories stored</p>
+      <div class="page-header flex items-center justify-between">
+        <div>
+          <h1 class="page-title">Memories</h1>
+          <p class="page-desc">\${data.total || 0} memories stored</p>
+        </div>
+        <button class="btn btn-primary" onclick="showNewMemory()">+ New Memory</button>
       </div>
 
       <div class="search-bar">
@@ -1635,6 +1646,18 @@ window.showMemoryDetail = async (id) => {
         <div class="settings-row"><span class="settings-label">Updated</span><span class="settings-value">\${m.updated_at || '-'}</span></div>
         <div class="settings-row"><span class="settings-label">Archived</span><span class="settings-value">\${m.is_archived ? 'Yes' : 'No'}</span></div>
       </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-title">Actions</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary" onclick="showEditMemory('\${esc(m.id)}')">Edit</button>
+          <button class="btn btn-secondary" onclick="showMemoryAudit('\${esc(m.id)}')">Audit History</button>
+          \${m.is_archived
+            ? \`<button class="btn btn-secondary" onclick="modifyMemoryAction('\${esc(m.id)}','unarchive')">Unarchive</button>\`
+            : \`<button class="btn btn-secondary" onclick="modifyMemoryAction('\${esc(m.id)}','archive')">Archive</button>\`}
+          <button class="btn btn-secondary" onclick="modifyMemoryAction('\${esc(m.id)}','inactivate', prompt('Reason for inactivating?') || 'no reason given')">Inactivate</button>
+          <button class="btn btn-secondary" onclick="modifyMemoryAction('\${esc(m.id)}','delete')" style="color:var(--tp-error)">Delete</button>
+        </div>
+      </div>
     \`;
   } catch (e) {
     content.innerHTML = '<div class="empty-state"><div class="empty-title">Memory not found</div></div>';
@@ -1645,9 +1668,12 @@ window.showMemoryDetail = async (id) => {
 
 async function renderGraph(el) {
   el.innerHTML = \`
-    <div class="page-header">
-      <h1 class="page-title">Knowledge Graph</h1>
-      <p class="page-desc">Entity relationships and connections</p>
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">Knowledge Graph</h1>
+        <p class="page-desc">Entity relationships and connections</p>
+      </div>
+      <button class="btn btn-secondary" onclick="openGraphTools()">Graph Tools</button>
     </div>
     <div id="graph-container">
       <div class="graph-controls">
@@ -2020,13 +2046,16 @@ async function renderPostmortems(el) {
     const pms = data.postmortems || data || [];
 
     el.innerHTML = \`
-      <div class="page-header">
-        <h1 class="page-title">Postmortems</h1>
-        <p class="page-desc">\${pms.length} bug analyses recorded</p>
+      <div class="page-header flex items-center justify-between">
+        <div>
+          <h1 class="page-title">Postmortems</h1>
+          <p class="page-desc">\${pms.length} bug analyses recorded</p>
+        </div>
+        <button class="btn btn-primary" onclick="showNewPostmortem()">+ New Postmortem</button>
       </div>
 
       \${pms.length ? pms.map(pm => \`
-        <div class="postmortem-card" onclick="this.classList.toggle('expanded')">
+        <div class="postmortem-card">
           <div class="postmortem-header">
             <span class="severity-dot severity-\${pm.severity || 'medium'}"></span>
             <strong style="font-size:13px">\${esc(pm.title)}</strong>
@@ -2081,14 +2110,17 @@ async function renderThinking(el) {
     const seqs = data.sequences || data || [];
 
     el.innerHTML = \`
-      <div class="page-header">
-        <h1 class="page-title">Thinking Sequences</h1>
-        <p class="page-desc">Structured problem-solving chains</p>
+      <div class="page-header flex items-center justify-between">
+        <div>
+          <h1 class="page-title">Thinking Sequences</h1>
+          <p class="page-desc">Structured problem-solving chains</p>
+        </div>
+        <button class="btn btn-primary" onclick="showNewThinking()">+ Start Sequence</button>
       </div>
 
       \${seqs.length ? seqs.map(seq => \`
-        <div class="card" style="margin-bottom:12px;cursor:pointer" onclick="loadThinking('\${seq.id}', this)">
-          <div class="flex items-center justify-between">
+        <div class="card" style="margin-bottom:12px">
+          <div class="flex items-center justify-between" style="cursor:pointer" onclick="loadThinking('\${seq.id}', this.closest('.card'))">
             <div>
               <strong style="font-size:13px">\${esc(seq.problem || seq.title || 'Thinking Sequence')}</strong>
               <div class="text-xs text-muted mt-2">\${seq.thought_count || 0} thoughts &middot; \${seq.status || 'active'}</div>
@@ -2096,6 +2128,7 @@ async function renderThinking(el) {
             <span class="text-xs text-muted">\${timeAgo(seq.created_at)}</span>
           </div>
           <div class="thinking-thoughts" style="display:none"></div>
+          \${seq.status !== 'completed' ? \`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--tp-border)"><button class="btn btn-secondary" onclick="showAddThought('\${esc(seq.id)}')">+ Add Thought</button></div>\` : ''}
         </div>
       \`).join('') : \`
         <div class="empty-state">
@@ -2147,22 +2180,26 @@ async function renderRules(el) {
     const builtinRules = data.builtin_rules || [];
 
     el.innerHTML = \`
-      <div class="page-header">
-        <h1 class="page-title">Rules</h1>
-        <p class="page-desc">\${userRules.length} user rules, \${builtinRules.length} built-in rules</p>
+      <div class="page-header flex items-center justify-between">
+        <div>
+          <h1 class="page-title">Rules</h1>
+          <p class="page-desc">\${userRules.length} user rules, \${builtinRules.length} built-in rules</p>
+        </div>
+        <button class="btn btn-primary" onclick="showNewRule()">+ Add Rule</button>
       </div>
 
       \${userRules.length ? \`
         <div class="section">
           <div class="section-title">User Rules</div>
           \${userRules.map(r => \`
-            <div class="rule-item">
-              <span class="rule-priority badge \${r.priority === 'high' ? 'badge-red' : r.priority === 'medium' ? 'badge-yellow' : 'badge-gray'}">\${r.priority || 'normal'}</span>
-              \${esc(r.content)}
+            <div class="rule-item" style="display:flex;align-items:center;gap:8px">
+              <span class="rule-priority badge \${r.priority === 'must' ? 'badge-red' : r.priority === 'should' ? 'badge-yellow' : 'badge-gray'}">\${r.priority || 'should'}</span>
+              <span style="flex:1">\${esc(r.content)}</span>
+              <button class="btn btn-ghost" onclick="deleteRule('\${esc(r.id)}')" style="color:var(--tp-error);padding:4px 8px;font-size:11px">Delete</button>
             </div>
           \`).join('')}
         </div>
-      \` : ''}
+      \` : \`<div class="empty-state" style="margin-bottom:16px"><div class="empty-icon">&#x1F4DC;</div><div class="empty-title">No user rules</div><div class="empty-desc">Add project-specific rules to guide AI behavior.</div></div>\`}
 
       <div class="section">
         <div class="section-title">Built-in Rules <span class="badge badge-purple">\${builtinRules.length}</span></div>
@@ -2270,11 +2307,39 @@ async function renderSettings(el) {
       </div>
 
       <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Server Health</div>
+        <div id="health-card"><div class="text-xs text-muted">Loading…</div></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
         <div class="card-title">Database</div>
         <div class="settings-row">
           <span class="settings-label">Type</span>
           <span class="settings-value">PostgreSQL + pgvector</span>
         </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Rate Limiting &amp; Auth</div>
+        <div class="text-xs text-muted" style="margin-bottom:12px">DB values override env vars after restart. Leave empty to clear.</div>
+        <form onsubmit="saveSystemConfig(event)" style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <label class="mx-label">Requests per minute</label>
+              <input id="sc-rpm" type="number" class="input" style="width:100%" placeholder="120" />
+            </div>
+            <div>
+              <label class="mx-label">Burst</label>
+              <input id="sc-burst" type="number" class="input" style="width:100%" placeholder="30" />
+            </div>
+          </div>
+          <label class="mx-label" style="display:flex;align-items:center;gap:8px;font-size:12px"><input id="sc-disabled" type="checkbox" /> Disable rate limiting (not recommended in production)</label>
+          <div>
+            <label class="mx-label">Auth Token (leave empty to disable)</label>
+            <input id="sc-auth" type="password" class="input" style="width:100%" placeholder="random secret" />
+          </div>
+          <div style="display:flex;gap:8px"><button type="submit" class="btn btn-primary">Save Server Config</button><button type="button" class="btn btn-secondary" onclick="restartServer()">Restart Server</button></div>
+        </form>
       </div>
 
       <div class="card" style="margin-bottom:16px">
@@ -2286,6 +2351,17 @@ async function renderSettings(el) {
         <div id="reset-status" style="font-size:12px;min-height:20px;text-align:center;margin-top:8px"></div>
       </div>
     \`;
+    loadHealth();
+    // pre-fill system config form
+    try {
+      const sc = await api('/api/system-config');
+      if (document.getElementById('sc-rpm')) {
+        document.getElementById('sc-rpm').value = sc.rate_limit_rpm || sc._env_rate_limit_rpm || '';
+        document.getElementById('sc-burst').value = sc.rate_limit_burst || sc._env_rate_limit_burst || '';
+        document.getElementById('sc-disabled').checked = (sc.rate_limit_disabled === 'true') || (sc._env_rate_limit_disabled === 'true');
+        document.getElementById('sc-auth').placeholder = sc.auth_token ? sc.auth_token : (sc._env_has_auth_token ? 'configured via env' : 'random secret');
+      }
+    } catch {}
 
     // Show/hide Ollama URL
     document.getElementById('cfg-provider').addEventListener('change', (e) => {
@@ -2342,6 +2418,10 @@ async function renderSettings(el) {
       const prov = document.getElementById('llm-provider').value;
       const model = document.getElementById('llm-model').value;
       const key = document.getElementById('llm-key').value;
+      // Provider "None" → explicitly clear LLM config (send empty strings).
+      if (!prov && !model && !key) {
+        body.llm_provider = ''; body.llm_model = ''; body.llm_api_key = '';
+      }
       if (prov) body.llm_provider = prov;
       if (model) body.llm_model = model;
       if (key) body.llm_api_key = key;
@@ -2395,33 +2475,51 @@ window.createBackup = async () => {
 async function renderSync(el) {
   el.innerHTML = \`
     <div class="page-header">
-      <h1 class="page-title">Export / Import</h1>
-      <p class="page-desc">Transfer memories between installations or create backups</p>
+      <h1 class="page-title">Data</h1>
+      <p class="page-desc">Backups, export/import, and project cleanup</p>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-      <div class="card">
-        <div class="card-title">Export</div>
-        <div style="font-size:13px;color:var(--tp-text-secondary);margin-bottom:16px;line-height:1.6">
-          Download all memories, entities, relations, tasks, and rules as a JSON file.
-          Use this for backups or to migrate to another machine.
-        </div>
-        <button class="btn btn-primary" id="export-btn" onclick="exportData()">Download Export</button>
-        <div id="export-status" class="text-xs text-muted mt-2"></div>
+    <div class="section">
+      <div class="section-title">Backups (Postgres JSON snapshots)</div>
+      <div class="card" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
+        <div class="text-xs text-secondary">Daily backups run automatically. You can also create one on demand.</div>
+        <button class="btn btn-primary" id="backup-now-btn" onclick="createBackupNow()">Create Backup</button>
       </div>
+      <div id="backups-list"></div>
+    </div>
 
-      <div class="card">
-        <div class="card-title">Import</div>
-        <div style="font-size:13px;color:var(--tp-text-secondary);margin-bottom:16px;line-height:1.6">
-          Import memories from a previously exported JSON file.
-          Duplicates are automatically skipped.
+    <div class="section">
+      <div class="section-title">Export / Import</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <div class="card-title">Export</div>
+          <div style="font-size:13px;color:var(--tp-text-secondary);margin-bottom:16px;line-height:1.6">
+            Download all memories, entities, relations, tasks, and rules as a JSON file.
+          </div>
+          <button class="btn btn-primary" id="export-btn" onclick="exportData()">Download Export</button>
+          <div id="export-status" class="text-xs text-muted mt-2"></div>
         </div>
-        <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(this)">
-        <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">Choose File</button>
-        <div id="import-status" class="text-xs text-muted mt-2"></div>
+        <div class="card">
+          <div class="card-title">Import</div>
+          <div style="font-size:13px;color:var(--tp-text-secondary);margin-bottom:16px;line-height:1.6">
+            Import memories from a previously exported JSON file. Duplicates are skipped.
+          </div>
+          <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(this)">
+          <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">Choose File</button>
+          <div id="import-status" class="text-xs text-muted mt-2"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Project Cleanup</div>
+      <div class="card">
+        <div class="text-xs text-secondary" style="margin-bottom:12px">Removes test artifact projects (hash starts with <code>zzz_test_</code>) and all their data.</div>
+        <button class="btn btn-secondary" onclick="cleanupTestProjects()" style="border-color:var(--tp-error);color:var(--tp-error)">Clean up test projects</button>
       </div>
     </div>
   \`;
+  loadBackups();
 }
 
 window.exportData = async () => {
@@ -2475,6 +2573,643 @@ window.importData = async (input) => {
     status.style.color = 'var(--tp-error)';
   }
   input.value = '';
+};
+
+// ── Modal System (universal) ─────────────────────────────────────────
+
+function openModal(title, contentHtml, opts = {}) {
+  closeModal();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'mx-modal-backdrop';
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  backdrop.innerHTML = \`
+    <div class="mx-modal" style="background:var(--tp-surface);border:1px solid var(--tp-border);border-radius:14px;max-width:\${opts.width || '640px'};width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,0.6)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--tp-border)">
+        <h2 style="font-size:15px;font-weight:600;color:var(--tp-text);margin:0">\${esc(title)}</h2>
+        <button class="btn btn-ghost" onclick="closeModal()" style="padding:4px 10px">&#x2715;</button>
+      </div>
+      <div class="mx-modal-body" style="padding:20px">\${contentHtml}</div>
+    </div>
+  \`;
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
+  document.body.appendChild(backdrop);
+}
+
+function closeModal() {
+  document.querySelectorAll('.mx-modal-backdrop').forEach(m => m.remove());
+}
+
+window.closeModal = closeModal;
+
+function toast(msg, kind = 'info') {
+  const t = document.createElement('div');
+  const colors = { info: 'var(--tp-info)', success: 'var(--tp-success)', error: 'var(--tp-error)', warning: 'var(--tp-warning)' };
+  t.style.cssText = \`position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--tp-surface);border:1px solid \${colors[kind] || colors.info};border-radius:8px;padding:10px 16px;font-size:13px;color:var(--tp-text);z-index:10000;box-shadow:0 8px 24px rgba(0,0,0,0.5)\`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.style.opacity = '0', 2500);
+  setTimeout(() => t.remove(), 3000);
+}
+window.toast = toast;
+
+// ── Memory CRUD forms ────────────────────────────────────────────────
+
+const MEMORY_TYPES = ['feature', 'code-snippet', 'debug', 'design', 'decision', 'rule', 'learning', 'research', 'discussion', 'progress', 'task', 'working-notes', 'pattern', 'context', 'bug', 'document-chunk'];
+
+window.showNewMemory = () => {
+  openModal('New Memory', \`
+    <form id="memform" style="display:flex;flex-direction:column;gap:12px">
+      <div>
+        <label class="mx-label">Content *</label>
+        <textarea id="mem-content" rows="6" class="input" style="width:100%;resize:vertical" placeholder="What did you learn / do / decide? (min 20 chars)" required></textarea>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <label class="mx-label">Type *</label>
+          <select id="mem-type" class="input select" style="width:100%">
+            \${MEMORY_TYPES.map(t => '<option value="' + t + '">' + t + '</option>').join('')}
+          </select>
+        </div>
+        <div>
+          <label class="mx-label">Importance (0.0–1.0)</label>
+          <input id="mem-importance" type="number" min="0" max="1" step="0.05" value="0.5" class="input" style="width:100%" />
+        </div>
+      </div>
+      <div>
+        <label class="mx-label">Tags (comma-separated)</label>
+        <input id="mem-tags" type="text" class="input" style="width:100%" placeholder="frontend, dashboard, bug" />
+      </div>
+      <div>
+        <label class="mx-label">Related files (one per line, absolute paths)</label>
+        <textarea id="mem-files" rows="2" class="input" style="width:100%;resize:vertical;font-family:ui-monospace,monospace;font-size:12px"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Memory</button>
+      </div>
+    </form>\`, { width: '600px' });
+
+  document.getElementById('memform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const content = document.getElementById('mem-content').value.trim();
+    if (content.length < 20) { toast('Content needs at least 20 chars', 'error'); return; }
+    const body = {
+      content,
+      type: document.getElementById('mem-type').value,
+      importance_score: parseFloat(document.getElementById('mem-importance').value) || 0.5,
+      tags: document.getElementById('mem-tags').value.split(',').map(t => t.trim()).filter(Boolean),
+      related_files: document.getElementById('mem-files').value.split(/\\n/).map(l => l.trim()).filter(Boolean),
+    };
+    try {
+      const res = await apiPost('/api/memories', body);
+      if (res.error) { toast(res.error, 'error'); return; }
+      toast('Memory created', 'success');
+      closeModal();
+      currentPage = ''; navigate();
+    } catch (e2) { toast('Create failed: ' + e2.message, 'error'); }
+  });
+};
+
+window.showEditMemory = async (id) => {
+  try {
+    const m = await api('/api/memories/' + id);
+    const tags = Array.isArray(m.tags) ? m.tags : (typeof m.tags === 'string' ? JSON.parse(m.tags || '[]') : []);
+    const files = Array.isArray(m.related_files) ? m.related_files : (typeof m.related_files === 'string' ? JSON.parse(m.related_files || '[]') : []);
+    openModal('Edit Memory', \`
+      <form id="memeditform" style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label class="mx-label">Content</label>
+          <textarea id="mem-content" rows="8" class="input" style="width:100%;resize:vertical">\${esc(m.content)}</textarea>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label class="mx-label">Type</label>
+            <select id="mem-type" class="input select" style="width:100%">
+              \${MEMORY_TYPES.map(t => '<option value="' + t + '"' + (t === m.type ? ' selected' : '') + '>' + t + '</option>').join('')}
+            </select>
+          </div>
+          <div>
+            <label class="mx-label">Importance</label>
+            <input id="mem-importance" type="number" min="0" max="1" step="0.05" value="\${m.importance_score || 0.5}" class="input" style="width:100%" />
+          </div>
+        </div>
+        <div>
+          <label class="mx-label">Tags</label>
+          <input id="mem-tags" type="text" class="input" style="width:100%" value="\${esc(tags.join(', '))}" />
+        </div>
+        <div>
+          <label class="mx-label">Related files</label>
+          <textarea id="mem-files" rows="3" class="input" style="width:100%;resize:vertical;font-family:ui-monospace,monospace;font-size:12px">\${esc(files.join('\\n'))}</textarea>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>\`, { width: '600px' });
+
+    document.getElementById('memeditform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = {
+        action: 'update',
+        content: document.getElementById('mem-content').value.trim(),
+        type: document.getElementById('mem-type').value,
+        importance_score: parseFloat(document.getElementById('mem-importance').value),
+        tags: document.getElementById('mem-tags').value.split(',').map(t => t.trim()).filter(Boolean),
+        related_files: document.getElementById('mem-files').value.split(/\\n/).map(l => l.trim()).filter(Boolean),
+      };
+      try {
+        const res = await apiPatch('/api/memories/' + id, body);
+        if (res.error) { toast(res.error, 'error'); return; }
+        toast('Memory updated', 'success');
+        closeModal();
+        showMemoryDetail(id);
+      } catch (e2) { toast('Update failed: ' + e2.message, 'error'); }
+    });
+  } catch (e) { toast('Load failed: ' + e.message, 'error'); }
+};
+
+window.modifyMemoryAction = async (id, action, reason) => {
+  if (action === 'delete' && !confirm('Permanently delete this memory? This cannot be undone.')) return;
+  try {
+    const body = { action };
+    if (reason) body.reason = reason;
+    const res = await apiPatch('/api/memories/' + id, body);
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast(action + ' successful', 'success');
+    if (action === 'delete') { currentPage = ''; location.hash = '#/memories'; navigate(); }
+    else { showMemoryDetail(id); }
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.showMemoryAudit = async (id) => {
+  try {
+    const res = await api('/api/memories/' + id + '/audit');
+    const history = res.access_history || res.history || [];
+    const html = history.length
+      ? '<table style="width:100%;font-size:12px"><thead><tr><th style="text-align:left;padding:6px;border-bottom:1px solid var(--tp-border)">When</th><th style="text-align:left;padding:6px;border-bottom:1px solid var(--tp-border)">Action</th><th style="text-align:left;padding:6px;border-bottom:1px solid var(--tp-border)">Details</th></tr></thead><tbody>'
+        + history.map(h => '<tr><td style="padding:6px;border-bottom:1px solid var(--tp-border)">' + esc(h.timestamp || h.accessed_at || '') + '</td><td style="padding:6px;border-bottom:1px solid var(--tp-border)">' + esc(h.action || h.access_type || '-') + '</td><td style="padding:6px;border-bottom:1px solid var(--tp-border);color:var(--tp-text-secondary)">' + esc(JSON.stringify(h.details || {})) + '</td></tr>').join('')
+        + '</tbody></table>'
+      : '<div class="text-xs text-muted" style="padding:20px;text-align:center">No audit entries yet.</div>';
+    openModal('Audit History', html, { width: '700px' });
+  } catch (e) { toast('Failed to load audit: ' + e.message, 'error'); }
+};
+
+// ── Postmortem create form ───────────────────────────────────────────
+
+window.showNewPostmortem = () => {
+  openModal('New Postmortem', \`
+    <form id="pmform" style="display:flex;flex-direction:column;gap:10px">
+      <div><label class="mx-label">Title *</label><input id="pm-title" type="text" class="input" style="width:100%" required /></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <label class="mx-label">Category *</label>
+          <select id="pm-cat" class="input select" style="width:100%">
+            <option>logic_error</option><option>race_condition</option><option>type_mismatch</option>
+            <option>config_error</option><option>null_pointer</option><option>off_by_one</option>
+            <option>memory_leak</option><option>deadlock</option><option>permission_error</option><option>other</option>
+          </select>
+        </div>
+        <div>
+          <label class="mx-label">Severity</label>
+          <select id="pm-sev" class="input select" style="width:100%">
+            <option>low</option><option selected>medium</option><option>high</option><option>critical</option>
+          </select>
+        </div>
+      </div>
+      <div><label class="mx-label">Description (what happened) *</label><textarea id="pm-desc" rows="3" class="input" style="width:100%;resize:vertical" required></textarea></div>
+      <div><label class="mx-label">Root Cause (why) *</label><textarea id="pm-root" rows="3" class="input" style="width:100%;resize:vertical" required></textarea></div>
+      <div><label class="mx-label">Fix Description *</label><textarea id="pm-fix" rows="3" class="input" style="width:100%;resize:vertical" required></textarea></div>
+      <div><label class="mx-label">Prevention</label><textarea id="pm-prev" rows="2" class="input" style="width:100%;resize:vertical"></textarea></div>
+      <div><label class="mx-label">Affected files (one per line)</label><textarea id="pm-files" rows="2" class="input" style="width:100%;resize:vertical;font-family:ui-monospace,monospace;font-size:12px"></textarea></div>
+      <div><label class="mx-label">Warning pattern (regex, optional)</label><input id="pm-pat" type="text" class="input" style="width:100%;font-family:ui-monospace,monospace" /></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Record Postmortem</button></div>
+    </form>\`, { width: '700px' });
+
+  document.getElementById('pmform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      title: document.getElementById('pm-title').value.trim(),
+      bug_category: document.getElementById('pm-cat').value,
+      severity: document.getElementById('pm-sev').value,
+      description: document.getElementById('pm-desc').value.trim(),
+      root_cause: document.getElementById('pm-root').value.trim(),
+      fix_description: document.getElementById('pm-fix').value.trim(),
+      prevention: document.getElementById('pm-prev').value.trim(),
+      affected_files: document.getElementById('pm-files').value.split(/\\n/).map(s => s.trim()).filter(Boolean),
+      warning_pattern: document.getElementById('pm-pat').value.trim(),
+    };
+    try {
+      const res = await apiPost('/api/postmortems', body);
+      if (res.error) { toast(res.error, 'error'); return; }
+      toast('Postmortem recorded', 'success');
+      closeModal();
+      currentPage = ''; navigate();
+    } catch (e2) { toast('Failed: ' + e2.message, 'error'); }
+  });
+};
+
+// ── Thinking create / add thought ────────────────────────────────────
+
+window.showNewThinking = () => {
+  openModal('Start Thinking Sequence', \`
+    <form id="thinkform" style="display:flex;flex-direction:column;gap:10px">
+      <div><label class="mx-label">Goal / Problem *</label><textarea id="think-goal" rows="3" class="input" style="width:100%;resize:vertical" placeholder="What are you trying to figure out?" required></textarea></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Start</button></div>
+    </form>\`);
+
+  document.getElementById('thinkform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const goal = document.getElementById('think-goal').value.trim();
+    if (!goal) return;
+    try {
+      const res = await apiPost('/api/thinking', { goal });
+      if (res.error) { toast(res.error, 'error'); return; }
+      toast('Sequence started', 'success');
+      closeModal();
+      currentPage = ''; navigate();
+    } catch (e2) { toast('Failed: ' + e2.message, 'error'); }
+  });
+};
+
+window.showAddThought = (sequenceId) => {
+  openModal('Add Thought', \`
+    <form id="thoughtform" style="display:flex;flex-direction:column;gap:10px">
+      <div>
+        <label class="mx-label">Type</label>
+        <select id="t-type" class="input select" style="width:100%">
+          <option>general</option><option>observation</option><option>hypothesis</option>
+          <option>question</option><option>reasoning</option><option>analysis</option>
+          <option>conclusion</option><option>branch</option>
+        </select>
+      </div>
+      <div><label class="mx-label">Thought *</label><textarea id="t-thought" rows="5" class="input" style="width:100%;resize:vertical" required></textarea></div>
+      <div class="text-xs text-muted">Type "conclusion" marks the sequence as completed.</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Add</button></div>
+    </form>\`);
+
+  document.getElementById('thoughtform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      thought: document.getElementById('t-thought').value.trim(),
+      thought_type: document.getElementById('t-type').value,
+    };
+    try {
+      const res = await apiPost('/api/thinking/' + sequenceId + '/thoughts', body);
+      if (res.error) { toast(res.error, 'error'); return; }
+      toast('Thought added', 'success');
+      closeModal();
+      currentPage = ''; navigate();
+    } catch (e2) { toast('Failed: ' + e2.message, 'error'); }
+  });
+};
+
+// ── Rules CRUD ───────────────────────────────────────────────────────
+
+window.showNewRule = () => {
+  openModal('New User Rule', \`
+    <form id="ruleform" style="display:flex;flex-direction:column;gap:10px">
+      <div><label class="mx-label">Rule *</label><textarea id="r-content" rows="3" class="input" style="width:100%;resize:vertical" placeholder="Always run tests before committing." required></textarea></div>
+      <div>
+        <label class="mx-label">Priority</label>
+        <select id="r-pri" class="input select" style="width:100%">
+          <option value="must">must</option>
+          <option value="should" selected>should</option>
+          <option value="may">may</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Add</button></div>
+    </form>\`);
+
+  document.getElementById('ruleform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const res = await apiPost('/api/rules', {
+        content: document.getElementById('r-content').value.trim(),
+        priority: document.getElementById('r-pri').value,
+      });
+      if (res.error) { toast(res.error, 'error'); return; }
+      toast('Rule added', 'success');
+      closeModal();
+      currentPage = ''; navigate();
+    } catch (e2) { toast('Failed: ' + e2.message, 'error'); }
+  });
+};
+
+window.deleteRule = async (id) => {
+  if (!confirm('Delete this rule?')) return;
+  try {
+    const res = await apiDelete('/api/rules/' + id);
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast('Rule deleted', 'success');
+    currentPage = ''; navigate();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+// ── Project Docs Page ────────────────────────────────────────────────
+
+async function renderDocs(el) {
+  try {
+    const data = await api('/api/project-docs');
+    const docs = data.docs || [];
+    el.innerHTML = \`
+      <div class="page-header flex items-center justify-between">
+        <div>
+          <h1 class="page-title">Project Docs</h1>
+          <p class="page-desc">\${docs.length} documents for this project</p>
+        </div>
+        <button class="btn btn-primary" onclick="showNewDoc()">+ New Doc</button>
+      </div>
+      \${docs.length ? docs.map(d => \`
+        <div class="card" style="margin-bottom:10px;cursor:pointer" onclick="showDoc('\${d.id}')">
+          <div class="flex items-center justify-between">
+            <div>
+              <strong style="font-size:13px">\${esc(d.title || 'Untitled')}</strong>
+              <div class="text-xs text-muted mt-2">\${esc(d.doc_type || 'notes')} &middot; v\${d.version || 1}</div>
+            </div>
+            <span class="text-xs text-muted">\${timeAgo(d.updated_at || d.created_at)}</span>
+          </div>
+        </div>\`).join('') : \`
+        <div class="empty-state">
+          <div class="empty-icon">&#x1F4D6;</div>
+          <div class="empty-title">No project docs yet</div>
+          <div class="empty-desc">Create specs, decisions, or onboarding notes that travel with the project.</div>
+        </div>\`}
+    \`;
+  } catch (e) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-title">Error loading docs</div><div class="empty-desc">' + esc(e.message) + '</div></div>';
+  }
+}
+
+window.showNewDoc = () => {
+  openModal('New Project Doc', \`
+    <form id="docform" style="display:flex;flex-direction:column;gap:10px">
+      <div><label class="mx-label">Title *</label><input id="d-title" type="text" class="input" style="width:100%" required /></div>
+      <div>
+        <label class="mx-label">Type</label>
+        <select id="d-type" class="input select" style="width:100%">
+          <option>notes</option><option>spec</option><option>decision</option>
+          <option>onboarding</option><option>architecture</option><option>readme</option>
+        </select>
+      </div>
+      <div><label class="mx-label">Content *</label><textarea id="d-content" rows="14" class="input" style="width:100%;resize:vertical;font-family:ui-monospace,monospace;font-size:12px" required></textarea></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Create</button></div>
+    </form>\`, { width: '720px' });
+
+  document.getElementById('docform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const res = await apiPost('/api/project-docs', {
+        action: 'create',
+        title: document.getElementById('d-title').value.trim(),
+        doc_type: document.getElementById('d-type').value,
+        content: document.getElementById('d-content').value,
+      });
+      if (res.error) { toast(res.error, 'error'); return; }
+      toast('Doc created', 'success');
+      closeModal();
+      currentPage = ''; navigate();
+    } catch (e2) { toast('Failed: ' + e2.message, 'error'); }
+  });
+};
+
+window.showDoc = async (id) => {
+  try {
+    const res = await apiPost('/api/project-docs', { action: 'get', doc_id: id });
+    if (res.error) { toast(res.error, 'error'); return; }
+    openModal(res.title || 'Doc', \`
+      <form id="docedit" style="display:flex;flex-direction:column;gap:10px">
+        <div class="text-xs text-muted">Type: \${esc(res.doc_type || 'notes')} &middot; v\${res.version || 1} &middot; updated \${timeAgo(res.updated_at)}</div>
+        <textarea id="ed-content" rows="20" class="input" style="width:100%;resize:vertical;font-family:ui-monospace,monospace;font-size:12px">\${esc(res.content || '')}</textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick="closeModal()">Close</button><button type="submit" class="btn btn-primary">Save</button></div>
+      </form>\`, { width: '780px' });
+    document.getElementById('docedit').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const r = await apiPost('/api/project-docs', {
+          action: 'update', doc_id: id,
+          content: document.getElementById('ed-content').value,
+        });
+        if (r.error) { toast(r.error, 'error'); return; }
+        toast('Doc updated', 'success'); closeModal(); currentPage = ''; navigate();
+      } catch (e2) { toast('Failed: ' + e2.message, 'error'); }
+    });
+  } catch (e) { toast('Load failed: ' + e.message, 'error'); }
+};
+
+// ── Graph tools (timeline, at-time, path, contradictions, consolidate, invalidate) ──
+
+window.openGraphTools = () => {
+  openModal('Graph Tools', \`
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+      <button class="btn btn-secondary" onclick="gtTimeline()">Entity Timeline</button>
+      <button class="btn btn-secondary" onclick="gtAtTime()">Graph @ Time</button>
+      <button class="btn btn-secondary" onclick="gtPath()">Shortest Path</button>
+      <button class="btn btn-secondary" onclick="gtContradictions()">Find Contradictions</button>
+      <button class="btn btn-secondary" onclick="gtConsolidate()">Find Duplicates</button>
+      <button class="btn btn-secondary" onclick="gtInvalidate()">Invalidate Entity</button>
+    </div>\`);
+};
+
+function gtPrompt(question) { return prompt(question); }
+
+window.gtTimeline = async () => {
+  const name = gtPrompt('Entity name (file path, function name, etc.):'); if (!name) return;
+  try {
+    const res = await api('/api/graph/timeline/' + encodeURIComponent(name));
+    if (res.error) { toast(res.error, 'error'); return; }
+    const tl = res.timeline || [];
+    const html = tl.length
+      ? tl.map(e => '<div class="card" style="margin-bottom:6px;padding:10px"><div class="text-xs text-muted">' + esc(e.event_time || '') + ' &middot; ' + esc(e.event_type) + '</div><div style="font-size:13px;margin-top:4px"><strong>' + esc(e.source_name) + '</strong> <span class="text-xs text-muted">' + esc(e.relation) + '</span> <strong>' + esc(e.target_name) + '</strong></div></div>').join('')
+      : '<div class="text-xs text-muted">No timeline events.</div>';
+    openModal('Timeline: ' + name, html, { width: '700px' });
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.gtAtTime = async () => {
+  const name = gtPrompt('Entity name:'); if (!name) return;
+  const at = gtPrompt('At time (ISO 8601, e.g. 2026-04-15T00:00:00Z):'); if (!at) return;
+  try {
+    const res = await apiPost('/api/graph/at-time', { entity_name: name, at_time: at });
+    if (res.error) { toast(res.error, 'error'); return; }
+    const rels = res.relations || [];
+    const html = rels.length
+      ? rels.map(r => '<div class="card" style="margin-bottom:6px;padding:10px"><div style="font-size:13px"><strong>' + esc(r.source_name) + '</strong> <span class="text-xs text-muted">' + esc(r.relation) + '</span> <strong>' + esc(r.target_name) + '</strong></div><div class="text-xs text-muted">conf ' + (r.confidence || 0).toFixed(2) + ' &middot; valid ' + esc(r.valid_from || '') + ' → ' + esc(r.valid_to || 'now') + '</div></div>').join('')
+      : '<div class="text-xs text-muted">No relations active at that time.</div>';
+    openModal('Graph at ' + at, html, { width: '700px' });
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.gtPath = async () => {
+  const from = gtPrompt('Source entity:'); if (!from) return;
+  const to = gtPrompt('Target entity:'); if (!to) return;
+  try {
+    const res = await apiPost('/api/graph/path', { source_entity: from, target_entity: to });
+    if (res.error) { toast(res.error, 'error'); return; }
+    const path = res.path || [];
+    const html = path.length
+      ? '<div style="font-size:13px;line-height:1.8">' + path.map(p => '<span class="tag">' + esc(p.name || p) + '</span>').join(' &rarr; ') + '</div>'
+      : '<div class="text-xs text-muted">' + esc(res.message || 'No path.') + '</div>';
+    openModal('Path: ' + from + ' → ' + to, html);
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.gtContradictions = async () => {
+  try {
+    const res = await api('/api/graph/contradictions');
+    if (res.error) { toast(res.error, 'error'); return; }
+    const ckey = (k) => Array.isArray(res[k]) ? res[k] : [];
+    const html = '<h3 style="font-size:13px;margin-bottom:8px">Circular: ' + ckey('circular').length + '</h3>'
+      + (ckey('circular').length ? '<pre style="font-size:11px;background:var(--tp-bg);padding:8px;border-radius:6px;overflow-x:auto">' + esc(JSON.stringify(res.circular, null, 2)) + '</pre>' : '<div class="text-xs text-muted">None</div>')
+      + '<h3 style="font-size:13px;margin:12px 0 8px">Conflicting: ' + ckey('conflicting').length + '</h3>'
+      + (ckey('conflicting').length ? '<pre style="font-size:11px;background:var(--tp-bg);padding:8px;border-radius:6px;overflow-x:auto">' + esc(JSON.stringify(res.conflicting, null, 2)) + '</pre>' : '<div class="text-xs text-muted">None</div>');
+    openModal('Graph Contradictions', html, { width: '720px' });
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.gtConsolidate = async () => {
+  try {
+    const res = await apiPost('/api/graph/consolidate', { dry_run: true });
+    if (res.error) { toast(res.error, 'error'); return; }
+    const dups = res.duplicates || [];
+    const html = '<div class="text-xs text-muted" style="margin-bottom:10px">Dry run — ' + dups.length + ' potential duplicate pair' + (dups.length === 1 ? '' : 's') + '.</div>'
+      + (dups.length ? '<pre style="font-size:11px;background:var(--tp-bg);padding:8px;border-radius:6px;overflow-x:auto;max-height:300px">' + esc(JSON.stringify(dups, null, 2)) + '</pre>' : '<div class="text-xs text-muted">No duplicates found.</div>')
+      + '<div style="margin-top:12px;text-align:right">' + (dups.length ? '<button class="btn btn-primary" onclick="gtConsolidateApply()">Apply Merge</button>' : '') + '</div>';
+    openModal('Find Duplicate Entities', html, { width: '720px' });
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.gtConsolidateApply = async () => {
+  if (!confirm('Apply entity merge? Duplicates will be combined.')) return;
+  try {
+    const res = await apiPost('/api/graph/consolidate', { dry_run: false });
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast('Merged ' + (res.duplicates?.length || 0) + ' duplicate set(s)', 'success');
+    closeModal();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.gtInvalidate = async () => {
+  const name = gtPrompt('Entity name to mark outdated:'); if (!name) return;
+  const reason = gtPrompt('Why is it outdated?'); if (!reason) return;
+  const replaced_by = gtPrompt('Replaced by (optional):') || undefined;
+  try {
+    const res = await apiPost('/api/graph/invalidate', { entity_name: name, reason, replaced_by });
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast('Entity invalidated', 'success');
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+// ── Backup / Restore / Project Cleanup / Restart ─────────────────────
+
+window.loadBackups = async () => {
+  const container = document.getElementById('backups-list');
+  if (!container) return;
+  container.innerHTML = '<div class="text-xs text-muted">Loading…</div>';
+  try {
+    const res = await api('/api/backups');
+    const list = res.backups || [];
+    container.innerHTML = list.length
+      ? list.map(b => \`
+        <div class="card" style="display:flex;align-items:center;justify-content:space-between;padding:10px;margin-bottom:6px">
+          <div>
+            <div style="font-family:ui-monospace,monospace;font-size:12px">\${esc(b.filename)}</div>
+            <div class="text-xs text-muted">\${(b.size/1024).toFixed(1)} KB &middot; \${timeAgo(b.mtime)}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-secondary" onclick="restoreBackup('\${esc(b.filename)}')">Restore</button>
+            <button class="btn btn-ghost" onclick="deleteBackupFile('\${esc(b.filename)}')" style="color:var(--tp-error)">Delete</button>
+          </div>
+        </div>\`).join('')
+      : '<div class="text-xs text-muted">No backups yet. Click "Create Backup" to make one.</div>';
+  } catch (e) { container.innerHTML = '<div class="text-xs" style="color:var(--tp-error)">Failed: ' + esc(e.message) + '</div>'; }
+};
+
+window.createBackupNow = async () => {
+  const btn = document.getElementById('backup-now-btn');
+  if (btn) { btn.textContent = 'Creating…'; btn.disabled = true; }
+  try {
+    const res = await apiPost('/api/backup', {});
+    if (res.error) { toast(res.error, 'error'); }
+    else { toast('Backup created: ' + (res.filename || 'snapshot'), 'success'); }
+    loadBackups();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+  if (btn) { btn.textContent = 'Create Backup'; btn.disabled = false; }
+};
+
+window.restoreBackup = async (filename) => {
+  const truncate = confirm('Restore "' + filename + '" — TRUNCATE existing data first?\\n\\nOK = TRUNCATE + restore (clean replace)\\nCancel = INSERT only (keep existing rows, fill gaps)');
+  if (!confirm('Final confirm: restore "' + filename + '"' + (truncate ? ' with TRUNCATE' : ' (insert-only') + '?')) return;
+  try {
+    const res = await apiPost('/api/backups/restore', { filename, truncate });
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast('Restored ' + (res.total_inserted || 0) + ' rows, skipped ' + (res.total_skipped || 0), 'success');
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.deleteBackupFile = async (filename) => {
+  if (!confirm('Delete backup file "' + filename + '"?')) return;
+  try {
+    const res = await apiDelete('/api/backups/' + encodeURIComponent(filename));
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast('Backup deleted', 'success');
+    loadBackups();
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.cleanupTestProjects = async () => {
+  if (!confirm('Delete ALL projects with hash starting "zzz_test_"? This removes test artifacts permanently.')) return;
+  try {
+    const res = await apiPost('/api/projects/cleanup', {});
+    toast('Cleaned ' + (res.deleted_count || 0) + ' test project(s)', 'success');
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+};
+
+window.restartServer = async () => {
+  if (!confirm('Restart the memaxx server? Active connections will drop briefly.')) return;
+  try {
+    await fetch('/api/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    toast('Server restarting…', 'info');
+    setTimeout(() => location.reload(), 3500);
+  } catch (e) { toast('Restart triggered (network closed during shutdown)', 'info'); setTimeout(() => location.reload(), 3500); }
+};
+
+// ── Server health + system config ────────────────────────────────────
+
+window.loadHealth = async () => {
+  const el = document.getElementById('health-card');
+  if (!el) return;
+  try {
+    const h = await api('/api/health-full');
+    const db = h.database || {};
+    const mem = h.memory || {};
+    const pending = (db.pending_embeddings || 0) + (db.pending_entities || 0);
+    el.innerHTML = \`
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;font-size:12px">
+        <div><div class="text-xs text-muted">Status</div><div style="color:var(--tp-success);font-weight:600">\${esc(h.status || '?')}</div></div>
+        <div><div class="text-xs text-muted">Uptime</div><div>\${Math.floor((h.uptime_seconds||0)/60)} min</div></div>
+        <div><div class="text-xs text-muted">RSS</div><div>\${mem.rss_mb || 0} MB</div></div>
+        <div><div class="text-xs text-muted">Heap</div><div>\${mem.heap_used_mb || 0} / \${mem.heap_total_mb || 0} MB</div></div>
+        <div><div class="text-xs text-muted">DB latency</div><div>\${db.latency_ms || '?'} ms</div></div>
+        <div><div class="text-xs text-muted">Memories</div><div>\${db.memories || 0}</div></div>
+        <div><div class="text-xs text-muted">Entities</div><div>\${db.entities || 0}</div></div>
+        <div><div class="text-xs text-muted">Pending</div><div style="color:\${pending > 0 ? 'var(--tp-warning)' : 'var(--tp-text)'}">\${pending}</div></div>
+      </div>\`;
+  } catch (e) { el.innerHTML = '<div class="text-xs" style="color:var(--tp-error)">Failed: ' + esc(e.message) + '</div>'; }
+};
+
+window.saveSystemConfig = async (e) => {
+  e.preventDefault();
+  const body = {
+    rate_limit_rpm: document.getElementById('sc-rpm').value.trim(),
+    rate_limit_burst: document.getElementById('sc-burst').value.trim(),
+    rate_limit_disabled: document.getElementById('sc-disabled').checked ? 'true' : '',
+    auth_token: document.getElementById('sc-auth').value.trim(),
+  };
+  try {
+    const res = await apiPost('/api/system-config', body);
+    if (res.error) { toast(res.error, 'error'); return; }
+    toast('Server config saved — restart to apply', 'success');
+  } catch (e2) { toast('Failed: ' + e2.message, 'error'); }
 };
 
 // ── Onboarding ───────────────────────────────────────────────────────
