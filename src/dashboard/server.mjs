@@ -40,6 +40,38 @@ import {
   modifyMemory,
   searchMemoriesRest,
   getMemoryUsage,
+  // New (Phase: full feature parity with MCP tools)
+  createPostmortem,
+  getPostmortemWarnings,
+  createThinkingSequence,
+  addThought,
+  createRule,
+  updateRule,
+  deleteRule,
+  deleteProject,
+  cleanupTestProjects,
+  linkProjects,
+  getMemoryAudit,
+  uploadMemoryDocument,
+  smartContextHandler,
+  checkCodeQuality,
+  patternFeedback,
+  sessionRecap,
+  getGraphTimeline,
+  getGraphAtTime,
+  getGraphPath,
+  getGraphContradictions,
+  consolidateGraph,
+  invalidateEntity,
+  invalidateRelation,
+  projectDocs,
+  getSystemConfig,
+  saveSystemConfig,
+  listBackups,
+  restoreBackup,
+  deleteBackup,
+  restartServer,
+  getFullHealth,
 } from "./api.mjs";
 
 // ── Allowed Host headers (DNS rebinding protection) ──────────────────
@@ -113,7 +145,7 @@ function buildRoutes(embeddingConfig, onboarding = false) {
     ["GET", "/api/insights", wrapAsync(getInsights)],
     ["GET", "/api/projects", wrapAsyncNoProject(getProjects)],
     ["POST", "/api/projects/rename", wrapAsyncNoProject(renameProject)],
-    ["POST", "/api/backup", wrapNoProject(createBackup)],
+    ["POST", "/api/backup", wrapAsyncNoProject(createBackup)],
     ["GET", "/api/export", wrapAsync(exportMemories)],
     ["POST", "/api/import", wrapAsync(importMemories)],
     ["GET", "/api/memories/:id/detail", wrapAsync(getMemoryDetail)],
@@ -121,6 +153,47 @@ function buildRoutes(embeddingConfig, onboarding = false) {
     ["GET", "/api/provider", wrapAsyncNoProject(getProviderConfig)],
     ["POST", "/api/provider", wrapAsyncNoProject(saveProviderConfig)],
     ["POST", "/api/provider/test", wrapAsyncNoProject(testProviderConnection)],
+    // Postmortems
+    ["POST", "/api/postmortems", wrapAsync(createPostmortem)],
+    ["POST", "/api/postmortem-warnings", wrapAsync(getPostmortemWarnings)],
+    // Thinking
+    ["POST", "/api/thinking", wrapAsync(createThinkingSequence)],
+    ["POST", "/api/thinking/:id/thoughts", wrapAsync(addThought)],
+    // Rules CRUD
+    ["POST", "/api/rules", wrapAsync(createRule)],
+    ["PATCH", "/api/rules/:id", wrapAsync(updateRule)],
+    ["DELETE", "/api/rules/:id", wrapAsync(deleteRule)],
+    // Project management
+    ["DELETE", "/api/projects/:hash", wrapAsyncNoProject(deleteProject)],
+    ["POST", "/api/projects/cleanup", wrapAsyncNoProject(cleanupTestProjects)],
+    ["POST", "/api/projects/link", wrapAsync(linkProjects)],
+    // Memory extras
+    ["GET", "/api/memories/:id/audit", wrapAsync(getMemoryAudit)],
+    ["POST", "/api/memories/upload", wrapAsync(uploadMemoryDocument)],
+    ["POST", "/api/smart-context", wrapAsync(smartContextHandler)],
+    ["POST", "/api/code-quality", wrapAsync(checkCodeQuality)],
+    ["POST", "/api/pattern-feedback", wrapAsync(patternFeedback)],
+    ["GET", "/api/session-recap", wrapAsync(sessionRecap)],
+    // Graph extras
+    ["GET", "/api/graph/timeline/:name", wrapAsync(getGraphTimeline)],
+    ["POST", "/api/graph/at-time", wrapAsync(getGraphAtTime)],
+    ["POST", "/api/graph/path", wrapAsync(getGraphPath)],
+    ["GET", "/api/graph/contradictions", wrapAsync(getGraphContradictions)],
+    ["POST", "/api/graph/consolidate", wrapAsync(consolidateGraph)],
+    ["POST", "/api/graph/invalidate", wrapAsync(invalidateEntity)],
+    ["POST", "/api/graph/invalidate-relation", wrapAsync(invalidateRelation)],
+    // Project docs (memory_projects MCP)
+    ["GET", "/api/project-docs", wrapAsync((p, q, b, ph) => projectDocs(p, q, { action: "list_all" }, ph))],
+    ["POST", "/api/project-docs", wrapAsync(projectDocs)],
+    // System config (rate limit, auth token, etc.)
+    ["GET", "/api/system-config", wrapAsyncNoProject(getSystemConfig)],
+    ["POST", "/api/system-config", wrapAsyncNoProject(saveSystemConfig)],
+    // Backups (list / restore / delete) + server
+    ["GET", "/api/backups", wrapAsyncNoProject(listBackups)],
+    ["POST", "/api/backups/restore", wrapAsyncNoProject(restoreBackup)],
+    ["DELETE", "/api/backups/:filename", wrapAsyncNoProject(deleteBackup)],
+    ["POST", "/api/restart", wrapAsyncNoProject(restartServer)],
+    ["GET", "/api/health-full", wrapAsyncNoProject(getFullHealth)],
   ];
 
   return defs.map(([method, pattern, handler]) => {

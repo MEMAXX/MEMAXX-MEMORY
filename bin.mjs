@@ -731,13 +731,53 @@ async function startHttpServer() {
       ["GET", "/api/insights", wrapAsync(dashApi.getInsights)],
       ["GET", "/api/projects", wrapAsyncNoProject(dashApi.getProjects)],
       ["POST", "/api/projects/rename", wrapAsyncNoProject(dashApi.renameProject)],
-      ["POST", "/api/backup", wrapNoProject(dashApi.createBackup)],
+      ["POST", "/api/backup", wrapAsyncNoProject(dashApi.createBackup)],
       ["GET", "/api/export", wrapAsync(dashApi.exportMemories)],
       ["POST", "/api/import", wrapAsync(dashApi.importMemories)],
       // Provider config (setup wizard)
       ["GET", "/api/provider", wrapAsyncNoProject(dashApi.getProviderConfig)],
       ["POST", "/api/provider", wrapAsyncNoProject(dashApi.saveProviderConfig)],
       ["POST", "/api/provider/test", wrapAsyncNoProject(dashApi.testProviderConnection)],
+      // Postmortems
+      ["POST", "/api/postmortems", wrapAsync(dashApi.createPostmortem)],
+      ["POST", "/api/postmortem-warnings", wrapAsync(dashApi.getPostmortemWarnings)],
+      // Thinking
+      ["POST", "/api/thinking", wrapAsync(dashApi.createThinkingSequence)],
+      ["POST", "/api/thinking/:id/thoughts", wrapAsync(dashApi.addThought)],
+      // Rules CRUD
+      ["POST", "/api/rules", wrapAsync(dashApi.createRule)],
+      ["PATCH", "/api/rules/:id", wrapAsync(dashApi.updateRule)],
+      ["DELETE", "/api/rules/:id", wrapAsync(dashApi.deleteRule)],
+      // Project mgmt
+      ["DELETE", "/api/projects/:hash", wrapAsyncNoProject(dashApi.deleteProject)],
+      ["POST", "/api/projects/cleanup", wrapAsyncNoProject(dashApi.cleanupTestProjects)],
+      ["POST", "/api/projects/link", wrapAsync(dashApi.linkProjects)],
+      // Memory extras
+      ["GET", "/api/memories/:id/audit", wrapAsync(dashApi.getMemoryAudit)],
+      ["POST", "/api/memories/upload", wrapAsync(dashApi.uploadMemoryDocument)],
+      ["POST", "/api/smart-context", wrapAsync(dashApi.smartContextHandler)],
+      ["POST", "/api/code-quality", wrapAsync(dashApi.checkCodeQuality)],
+      ["POST", "/api/pattern-feedback", wrapAsync(dashApi.patternFeedback)],
+      ["GET", "/api/session-recap", wrapAsync(dashApi.sessionRecap)],
+      // Graph extras
+      ["GET", "/api/graph/timeline/:name", wrapAsync(dashApi.getGraphTimeline)],
+      ["POST", "/api/graph/at-time", wrapAsync(dashApi.getGraphAtTime)],
+      ["POST", "/api/graph/path", wrapAsync(dashApi.getGraphPath)],
+      ["GET", "/api/graph/contradictions", wrapAsync(dashApi.getGraphContradictions)],
+      ["POST", "/api/graph/consolidate", wrapAsync(dashApi.consolidateGraph)],
+      ["POST", "/api/graph/invalidate", wrapAsync(dashApi.invalidateEntity)],
+      ["POST", "/api/graph/invalidate-relation", wrapAsync(dashApi.invalidateRelation)],
+      // Project docs
+      ["GET", "/api/project-docs", wrapAsync((p, q, b, ph) => dashApi.projectDocs(p, q, { action: "list_all" }, ph))],
+      ["POST", "/api/project-docs", wrapAsync(dashApi.projectDocs)],
+      // System config + backups + server control
+      ["GET", "/api/system-config", wrapAsyncNoProject(dashApi.getSystemConfig)],
+      ["POST", "/api/system-config", wrapAsyncNoProject(dashApi.saveSystemConfig)],
+      ["GET", "/api/backups", wrapAsyncNoProject(dashApi.listBackups)],
+      ["POST", "/api/backups/restore", wrapAsyncNoProject(dashApi.restoreBackup)],
+      ["DELETE", "/api/backups/:filename", wrapAsyncNoProject(dashApi.deleteBackup)],
+      ["POST", "/api/restart", wrapAsyncNoProject(dashApi.restartServer)],
+      ["GET", "/api/health-full", wrapAsyncNoProject(dashApi.getFullHealth)],
     ];
 
     return defs.map(([method, pattern, handler]) => {

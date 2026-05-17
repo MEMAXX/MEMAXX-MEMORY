@@ -723,24 +723,12 @@ export async function getInsights(params, query_, body, projectHash) {
 
 // ── Backup ───────────────────────────────────────────────────────────
 
-export function createBackup(params, query_, body) {
-  const config = readConfig();
-  if (!config) return { error: "No config found", status: 404 };
-
-  const dbPath = config.db_path;
-  if (!dbPath) return { error: "No db_path in config", status: 500 };
-
-  const timestamp = Date.now();
-  const backupPath = `${dbPath}.backup-${timestamp}`;
-
+export async function createBackup() {
+  // Postgres backup — write a JSON snapshot via the existing daily-backup module.
   try {
-    copyFileSync(dbPath, backupPath);
-    const stats = statSync(backupPath);
-    return {
-      success: true,
-      backup_path: backupPath,
-      size: stats.size,
-    };
+    const { runBackup } = await import("../backup.mjs");
+    const result = await runBackup({ force: true });
+    return { success: true, ...result };
   } catch (err) {
     return { error: `Backup failed: ${err.message}`, status: 500 };
   }
@@ -1136,4 +1124,433 @@ export async function renameProject(params, query_, body) {
     [project_hash, name.trim()]
   );
   return { success: true, project_hash, name: name.trim() };
+}
+
+// ── MCP-handler wrapper ──────────────────────────────────────────────
+// Many features are already implemented as MCP handlers in tools.mjs.
+// We invoke the public dispatcher `handleToolCall(name, args)` which derives
+// the project hash from args. Inject our resolved ph via `project_id` so it
+// matches whatever the dashboard request thread is scoped to.
+//
+// `handlerName` accepts either the MCP tool name (e.g. "memory_postmortem")
+// or — for back-compat in older code — the internal "handlePostmortem" form.
+const HANDLER_TO_TOOL = {
+  handleInit: "memory_init", handleStore: "memory_store", handleSearch: "memory_search",
+  handleModify: "memory_modify", handleList: "memory_list", handleExpand: "memory_expand",
+  handleExport: "memory_export", handleGraphExplore: "memory_graph_explore",
+  handleGraphStats: "memory_graph_stats", handleGraphPath: "memory_graph_path",
+  handleGraphInvalidate: "memory_graph_invalidate",
+  handleGraphInvalidateRelation: "memory_graph_invalidate_relation",
+  handleStartThinking: "memory_start_thinking", handleAddThought: "memory_add_thought",
+  handleTasks: "memory_tasks", handleSessionRecap: "memory_session_recap",
+  handleGetRules: "memory_get_rules", handleInsights: "memory_insights",
+  handlePostmortem: "memory_postmortem", handlePostmortemWarnings: "memory_postmortem_warnings",
+  handlePatternFeedback: "memory_pattern_feedback",
+  handleCodeQualityCheck: "memory_code_quality_check",
+  handleAuditHistory: "memory_audit_history", handleSmartContext: "smart_context",
+  handleExportForMigration: "memory_export_migration",
+  handleGraphTimeline: "memory_graph_timeline", handleGraphAtTime: "memory_graph_at_time",
+  handleGraphContradictions: "memory_graph_contradictions",
+  handleGraphConsolidate: "memory_graph_consolidate",
+  handleUploadDocument: "memory_upload_document", handleProjects: "memory_projects",
+  handleProjectLink: "memory_project_link", handleListProjects: "memory_list_projects",
+};
+
+async function callMcp(handlerOrTool, args, ph) {
+  const tools = await import("../tools.mjs");
+  const toolName = HANDLER_TO_TOOL[handlerOrTool] || handlerOrTool;
+  const injected = { ...(args || {}) };
+  if (ph && !injected.project_id) injected.project_id = ph;
+  const result = await tools.handleToolCall(toolName, injected);
+  const text = result?.content?.[0]?.text;
+  const parsed = text ? JSON.parse(text) : {};
+  if (result?.isError) return { error: parsed.error || "MCP handler error", status: 400 };
+  return parsed;
+}
+
+// ── Postmortems — Create ─────────────────────────────────────────────
+
+export async function createPostmortem(params, query_, body, projectHash) {
+  if (!body?.title || !body?.bug_category || !body?.description || !body?.root_cause || !body?.fix_description) {
+    return { error: "title, bug_category, description, root_cause, fix_description required", status: 400 };
+  }
+  return callMcp("handlePostmortem", body, projectHash);
+}
+
+export async function getPostmortemWarnings(params, query_, body, projectHash) {
+  if (!Array.isArray(body?.files) || body.files.length === 0) {
+    return { error: "files (array) required", status: 400 };
+  }
+  return callMcp("handlePostmortemWarnings", body, projectHash);
+}
+
+// ── Thinking — Create / Add Thought ──────────────────────────────────
+
+export async function createThinkingSequence(params, query_, body, projectHash) {
+  if (!body?.goal && !body?.title) return { error: "goal required", status: 400 };
+  return callMcp("handleStartThinking", body, projectHash);
+}
+
+export async function addThought(params, query_, body, projectHash) {
+  const sequence_id = params?.id || body?.sequence_id;
+  if (!sequence_id || !body?.thought) return { error: "sequence_id and thought required", status: 400 };
+  return callMcp("handleAddThought", { ...body, sequence_id }, projectHash);
+}
+
+// ── Rules — Create / Update / Delete ─────────────────────────────────
+
+export async function createRule(params, query_, body, projectHash) {
+  if (!body?.content || body.content.trim().length < 3) {
+    return { error: "content (min 3 chars) required", status: 400 };
+  }
+  const id = generateId();
+  await query(
+    "INSERT INTO rules (id, project_hash, content, priority, is_active) VALUES ($1, $2, $3, $4, TRUE)",
+    [id, projectHash, body.content.trim(), body.priority || "should"]
+  );
+  return { id, success: true };
+}
+
+export async function updateRule(params, query_, body, projectHash) {
+  const id = params?.id;
+  if (!id) return { error: "rule id required", status: 400 };
+  const updates = [];
+  const vals = [];
+  let i = 1;
+  if (body.content !== undefined) { updates.push(`content = $${i++}`); vals.push(String(body.content).trim()); }
+  if (body.priority !== undefined) { updates.push(`priority = $${i++}`); vals.push(body.priority); }
+  if (body.is_active !== undefined) { updates.push(`is_active = $${i++}`); vals.push(!!body.is_active); }
+  if (updates.length === 0) return { error: "no fields to update", status: 400 };
+  vals.push(id, projectHash);
+  const res = await query(
+    `UPDATE rules SET ${updates.join(", ")} WHERE id = $${i++} AND project_hash = $${i} RETURNING id`,
+    vals
+  );
+  if (res.rowCount === 0) return { error: "rule not found", status: 404 };
+  return { updated: true, id };
+}
+
+export async function deleteRule(params, query_, body, projectHash) {
+  const id = params?.id;
+  if (!id) return { error: "rule id required", status: 400 };
+  const res = await query(
+    "DELETE FROM rules WHERE id = $1 AND project_hash = $2 RETURNING id",
+    [id, projectHash]
+  );
+  if (res.rowCount === 0) return { error: "rule not found", status: 404 };
+  return { deleted: true, id };
+}
+
+// ── Projects — Delete / Cleanup test projects / Link ─────────────────
+
+export async function deleteProject(params) {
+  const hash = params?.hash;
+  if (!hash) return { error: "project hash required", status: 400 };
+  // Cascade: memories, entities, relations, entity_mentions, tasks, rules, postmortems,
+  // thinking_sequences, system_config rows are all per-project.
+  // entity_mentions cascades via entities FK; relations cascade via entities FK.
+  await query("DELETE FROM relations WHERE project_hash = $1", [hash]);
+  await query("DELETE FROM entity_mentions WHERE memory_id IN (SELECT id FROM memories WHERE project_hash = $1)", [hash]);
+  await query("DELETE FROM entities WHERE project_hash = $1", [hash]);
+  await query("DELETE FROM thinking_thoughts WHERE sequence_id IN (SELECT id FROM thinking_sequences WHERE project_hash = $1)", [hash]);
+  await query("DELETE FROM thinking_sequences WHERE project_hash = $1", [hash]);
+  await query("DELETE FROM tasks WHERE project_hash = $1", [hash]);
+  await query("DELETE FROM rules WHERE project_hash = $1", [hash]);
+  await query("DELETE FROM postmortems WHERE project_hash = $1", [hash]);
+  await query("DELETE FROM memory_audit WHERE memory_id IN (SELECT id FROM memories WHERE project_hash = $1)", [hash]).catch(() => {});
+  await query("DELETE FROM memories WHERE project_hash = $1", [hash]);
+  await query("DELETE FROM projects WHERE project_hash = $1", [hash]);
+  return { deleted: true, project_hash: hash };
+}
+
+export async function cleanupTestProjects() {
+  const { rows } = await query(
+    "SELECT DISTINCT project_hash FROM memories WHERE project_hash LIKE 'zzz_test_%'"
+  );
+  const hashes = rows.map(r => r.project_hash);
+  for (const hash of hashes) {
+    await deleteProject({ hash });
+  }
+  return { deleted_count: hashes.length, project_hashes: hashes };
+}
+
+export async function linkProjects(params, query_, body, projectHash) {
+  if (!body?.target_project_hash || !body?.link_type) {
+    return { error: "target_project_hash and link_type required", status: 400 };
+  }
+  return callMcp("handleProjectLink", body, projectHash);
+}
+
+// ── Memory extras — audit, upload, smart context, code-quality ───────
+
+export async function getMemoryAudit(params, query_, body, projectHash) {
+  if (!params?.id) return { error: "memory id required", status: 400 };
+  return callMcp("handleAuditHistory", { memory_id: params.id }, projectHash);
+}
+
+export async function uploadMemoryDocument(params, query_, body, projectHash) {
+  if (!body?.file_content) return { error: "file_content required", status: 400 };
+  return callMcp("handleUploadDocument", body, projectHash);
+}
+
+export async function smartContextHandler(params, query_, body, projectHash) {
+  if (!body?.query) return { error: "query required", status: 400 };
+  return callMcp("handleSmartContext", body, projectHash);
+}
+
+export async function checkCodeQuality(params, query_, body, projectHash) {
+  if (!body?.content) return { error: "content required", status: 400 };
+  return callMcp("handleCodeQualityCheck", body, projectHash);
+}
+
+export async function patternFeedback(params, query_, body, projectHash) {
+  if (!body?.pattern_id || !body?.outcome) return { error: "pattern_id and outcome required", status: 400 };
+  return callMcp("handlePatternFeedback", body, projectHash);
+}
+
+export async function sessionRecap(params, query_, body, projectHash) {
+  return callMcp("handleSessionRecap", body || {}, projectHash);
+}
+
+// ── Graph extras — timeline, at_time, path, contradictions, consolidate, invalidate ─
+
+export async function getGraphTimeline(params, query_, body, projectHash) {
+  const entity_name = params?.name || query_?.entity_name;
+  if (!entity_name) return { error: "entity name required", status: 400 };
+  const limit = parseInt(query_?.limit) || 50;
+  return callMcp("handleGraphTimeline", { entity_name, limit }, projectHash);
+}
+
+export async function getGraphAtTime(params, query_, body, projectHash) {
+  if (!body?.entity_name || !body?.at_time) return { error: "entity_name and at_time required", status: 400 };
+  return callMcp("handleGraphAtTime", body, projectHash);
+}
+
+export async function getGraphPath(params, query_, body, projectHash) {
+  if (!body?.source_entity || !body?.target_entity) return { error: "source_entity and target_entity required", status: 400 };
+  return callMcp("handleGraphPath", body, projectHash);
+}
+
+export async function getGraphContradictions(params, query_, body, projectHash) {
+  return callMcp("handleGraphContradictions", body || {}, projectHash);
+}
+
+export async function consolidateGraph(params, query_, body, projectHash) {
+  return callMcp("handleGraphConsolidate", body || {}, projectHash);
+}
+
+export async function invalidateEntity(params, query_, body, projectHash) {
+  if (!body?.entity_name || !body?.reason) return { error: "entity_name and reason required", status: 400 };
+  return callMcp("handleGraphInvalidate", body, projectHash);
+}
+
+export async function invalidateRelation(params, query_, body, projectHash) {
+  if (!body?.relation_id || !body?.reason) return { error: "relation_id and reason required", status: 400 };
+  return callMcp("handleGraphInvalidateRelation", body, projectHash);
+}
+
+// ── Project docs (memory_projects MCP) ───────────────────────────────
+
+export async function projectDocs(params, query_, body, projectHash) {
+  const action = body?.action || query_?.action || "list_all";
+  return callMcp("handleProjects", { ...body, action }, projectHash);
+}
+
+// ── System config (rate limit, auth token, etc.) ─────────────────────
+
+export async function getSystemConfig() {
+  const { rows } = await query(
+    "SELECT key, value FROM system_config WHERE key LIKE 'rate_limit_%' OR key = 'auth_token' OR key = 'trust_proxy' ORDER BY key"
+  );
+  const config = {};
+  for (const row of rows) {
+    if (row.key === "auth_token" && row.value && row.value.length > 4) {
+      config[row.key] = "***" + row.value.slice(-4);
+    } else {
+      config[row.key] = row.value;
+    }
+  }
+  config._env_rate_limit_rpm = process.env.RATE_LIMIT_RPM || null;
+  config._env_rate_limit_burst = process.env.RATE_LIMIT_BURST || null;
+  config._env_rate_limit_disabled = process.env.RATE_LIMIT_DISABLED || null;
+  config._env_has_auth_token = !!process.env.AUTH_TOKEN;
+  config._env_trust_proxy = process.env.TRUST_PROXY || null;
+  return config;
+}
+
+export async function saveSystemConfig(params, query_, body) {
+  if (!body || typeof body !== "object") return { error: "body required", status: 400 };
+  const allowed = ["rate_limit_rpm", "rate_limit_burst", "rate_limit_disabled", "auth_token", "trust_proxy"];
+  let saved = 0, deleted = 0;
+  for (const [k, v] of Object.entries(body)) {
+    if (!allowed.includes(k)) continue;
+    const sv = String(v ?? "").trim();
+    if (!sv) {
+      await query("DELETE FROM system_config WHERE key = $1", [k]);
+      deleted++;
+    } else {
+      await query(
+        `INSERT INTO system_config (key, value, updated_at) VALUES ($1, $2, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+        [k, sv]
+      );
+      saved++;
+    }
+  }
+  return { success: true, saved, deleted };
+}
+
+// ── Backups — list, restore, delete (PostgreSQL JSON snapshots) ──────
+
+export async function listBackups() {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const dir = process.env.BACKUP_DIR || "/app/.memaxx-backups";
+  try {
+    if (!fs.existsSync(dir)) return { backups: [], count: 0, backup_dir: dir };
+    const files = fs.readdirSync(dir)
+      .filter(f => f.endsWith(".json"))
+      .map(f => {
+        const full = path.join(dir, f);
+        const stat = fs.statSync(full);
+        return { filename: f, size: stat.size, mtime: stat.mtime.toISOString() };
+      })
+      .sort((a, b) => b.mtime.localeCompare(a.mtime));
+    return { backups: files, count: files.length, backup_dir: dir };
+  } catch (err) {
+    return { error: `listBackups failed: ${err.message}`, status: 500 };
+  }
+}
+
+const RESTORE_TABLE_ORDER = [
+  "projects", "memories", "entities", "entity_mentions", "relations",
+  "rules", "postmortems", "tasks", "thinking_sequences", "thinking_thoughts",
+  "patterns", "project_docs", "project_links", "document_uploads", "system_config",
+];
+
+function _restoreNormalize(v) {
+  if (v === null || v === undefined) return null;
+  if (Array.isArray(v)) return JSON.stringify(v);
+  if (typeof v === "object" && !(v instanceof Date)) return JSON.stringify(v);
+  return v;
+}
+function _quoteIdent(s) { return `"${String(s).replace(/"/g, '""')}"`; }
+
+export async function restoreBackup(params, query_, body) {
+  const filename = body?.filename;
+  if (!filename || filename.includes("/") || filename.includes("..")) {
+    return { error: "valid filename required (no path traversal)", status: 400 };
+  }
+  const path = await import("node:path");
+  const fs = await import("node:fs");
+  const dir = process.env.BACKUP_DIR || "/app/.memaxx-backups";
+  const full = path.join(dir, filename);
+  if (!fs.existsSync(full)) return { error: "backup file not found", status: 404 };
+
+  let snapshot;
+  try {
+    snapshot = JSON.parse(fs.readFileSync(full, "utf-8"));
+  } catch (err) {
+    return { error: `Invalid JSON: ${err.message}`, status: 400 };
+  }
+  if (snapshot?.version !== 1 || !snapshot?.tables) {
+    return { error: "Invalid snapshot — expected { version: 1, tables: {...} }", status: 400 };
+  }
+
+  const truncate = !!body?.truncate;
+  const perTable = {};
+  let totalInserted = 0, totalSkipped = 0;
+
+  for (const table of RESTORE_TABLE_ORDER) {
+    const rows = snapshot.tables[table];
+    if (!rows || rows.length === 0) continue;
+
+    if (truncate) {
+      try { await query(`TRUNCATE TABLE ${table} CASCADE`); }
+      catch (err) { perTable[table] = { inserted: 0, skipped: rows.length, error: err.message }; continue; }
+    }
+
+    let inserted = 0, skipped = 0;
+    for (const row of rows) {
+      if (table === "system_config" && typeof row.value === "string" && row.value.startsWith("***redacted:")) {
+        skipped++; continue;
+      }
+      const cols = Object.keys(row);
+      const placeholders = cols.map((_, i) => `$${i + 1}`);
+      const vals = cols.map((c) => _restoreNormalize(row[c]));
+      try {
+        const r = await query(
+          `INSERT INTO ${table} (${cols.map(_quoteIdent).join(", ")}) VALUES (${placeholders.join(", ")}) ON CONFLICT DO NOTHING`,
+          vals
+        );
+        if (r.rowCount > 0) inserted++; else skipped++;
+      } catch { skipped++; }
+    }
+    perTable[table] = { inserted, skipped };
+    totalInserted += inserted;
+    totalSkipped += skipped;
+  }
+
+  return { success: true, total_inserted: totalInserted, total_skipped: totalSkipped, per_table: perTable, truncate };
+}
+
+export async function deleteBackup(params) {
+  const filename = params?.filename;
+  if (!filename || filename.includes("/") || filename.includes("..")) {
+    return { error: "valid filename required", status: 400 };
+  }
+  const path = await import("node:path");
+  const fs = await import("node:fs");
+  const dir = process.env.BACKUP_DIR || "/app/.memaxx-backups";
+  const full = path.join(dir, filename);
+  if (!fs.existsSync(full)) return { error: "backup file not found", status: 404 };
+  fs.unlinkSync(full);
+  return { deleted: true, filename };
+}
+
+// ── Server restart (graceful shutdown — Docker restart policy brings it back) ─
+
+export async function restartServer() {
+  setTimeout(() => process.exit(0), 200);
+  return { success: true, message: "Server is restarting. Will be back in a few seconds." };
+}
+
+// ── Full health (proxies what bin.mjs /health returns, via SQL) ──────
+
+export async function getFullHealth() {
+  const startupTime = global.__memaxx_startup || Date.now();
+  const uptime_seconds = Math.floor((Date.now() - startupTime) / 1000);
+
+  let dbStats = {};
+  try {
+    const t0 = Date.now();
+    const { rows } = await query("SELECT COUNT(*) as c FROM memories");
+    dbStats.latency_ms = Date.now() - t0;
+    dbStats.memories = parseInt(rows[0]?.c) || 0;
+    const { rows: er } = await query("SELECT COUNT(*) as c FROM entities WHERE is_valid = TRUE");
+    dbStats.entities = parseInt(er[0]?.c) || 0;
+    const { rows: pr } = await query("SELECT COUNT(*) as c FROM (SELECT DISTINCT project_hash FROM memories) x");
+    dbStats.projects = parseInt(pr[0]?.c) || 0;
+    const { rows: peb } = await query("SELECT COUNT(*) as c FROM memories WHERE embedding_pending = TRUE");
+    dbStats.pending_embeddings = parseInt(peb[0]?.c) || 0;
+    const { rows: pen } = await query("SELECT COUNT(*) as c FROM memories WHERE entities_pending = TRUE");
+    dbStats.pending_entities = parseInt(pen[0]?.c) || 0;
+    dbStats.connected = true;
+  } catch (err) {
+    dbStats = { connected: false, error: err.message };
+  }
+
+  const mem = process.memoryUsage();
+  return {
+    status: "ok",
+    version: "3.0.0",
+    uptime_seconds,
+    node_version: process.version,
+    memory: {
+      rss_mb: Math.round(mem.rss / 1024 / 1024),
+      heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+      heap_total_mb: Math.round(mem.heapTotal / 1024 / 1024),
+    },
+    database: dbStats,
+  };
 }
