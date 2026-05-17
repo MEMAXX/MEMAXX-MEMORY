@@ -23,6 +23,7 @@ export function renderPage(opts = {}) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MEMAXX Memory</title>
   <link rel="icon" href="${MEMAXX_LOGO_B64}">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/duotone/style.css">
   <style nonce="${nonce}">${CSS}</style>
 </head>
 <body>
@@ -39,59 +40,29 @@ export function renderPage(opts = {}) {
       </div>
       <div class="nav-section">
         <div class="nav-label">General</div>
-        <a class="nav-item" href="#/" data-page="overview">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-          Overview
-        </a>
-        <a class="nav-item" href="#/memories" data-page="memories">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-          Memories
-        </a>
-        <a class="nav-item" href="#/graph" data-page="graph">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.5 7.5L15.5 16.5M15.5 7.5L8.5 16.5"/></svg>
-          Knowledge Graph
-        </a>
-        <a class="nav-item" href="#/tasks" data-page="tasks">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-          Tasks
-        </a>
+        <a class="nav-item" href="#/" data-page="overview"><i class="ph-duotone ph-squares-four"></i>Overview</a>
+        <a class="nav-item" href="#/memories" data-page="memories"><i class="ph-duotone ph-stack"></i>Memories</a>
+        <a class="nav-item" href="#/graph" data-page="graph"><i class="ph-duotone ph-graph"></i>Knowledge Graph</a>
+        <a class="nav-item" href="#/tasks" data-page="tasks"><i class="ph-duotone ph-check-square"></i>Tasks</a>
       </div>
       <div class="nav-section">
         <div class="nav-label">Intelligence</div>
-        <a class="nav-item" href="#/postmortems" data-page="postmortems">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="10"/></svg>
-          Postmortems
-        </a>
-        <a class="nav-item" href="#/thinking" data-page="thinking">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a8 8 0 00-2.76 15.52A2 2 0 0110 19.5V20a2 2 0 004 0v-.48a2 2 0 00.76-1.98A8 8 0 0012 2z"/></svg>
-          Thinking
-        </a>
-        <a class="nav-item" href="#/rules" data-page="rules">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          Rules
-        </a>
-        <a class="nav-item" href="#/docs" data-page="docs">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
-          Project Docs
-        </a>
+        <a class="nav-item" href="#/postmortems" data-page="postmortems"><i class="ph-duotone ph-warning-circle"></i>Postmortems</a>
+        <a class="nav-item" href="#/thinking" data-page="thinking"><i class="ph-duotone ph-brain"></i>Thinking</a>
+        <a class="nav-item" href="#/rules" data-page="rules"><i class="ph-duotone ph-shield-check"></i>Rules</a>
+        <a class="nav-item" href="#/docs" data-page="docs"><i class="ph-duotone ph-file-text"></i>Project Docs</a>
       </div>
       <div class="nav-section">
         <div class="nav-label">System</div>
-        <a class="nav-item" href="#/sync" data-page="sync">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
-          Data
-        </a>
-        <a class="nav-item" href="#/settings" data-page="settings">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-          Settings
-        </a>
+        <a class="nav-item" href="#/sync" data-page="sync"><i class="ph-duotone ph-database"></i>Data</a>
+        <a class="nav-item" href="#/settings" data-page="settings"><i class="ph-duotone ph-gear-six"></i>Settings</a>
       </div>
       <div class="sidebar-footer">
         <div class="footer-badge">Self-Hosted</div>
       </div>
     </nav>
     <main id="content">
-      <button id="mobile-menu" class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')">&#9776;</button>
+      <button id="mobile-menu" class="mobile-menu" onclick="document.getElementById('sidebar').classList.toggle('open')"><i class="ph-duotone ph-list"></i></button>
       <div id="page-loading" class="page-loading">
         <div class="spinner"></div>
       </div>
@@ -119,9 +90,11 @@ const CSS = `
   --tp-text: #e5e5e5;
   --tp-text-secondary: #888888;
   --tp-text-muted: #555555;
-  --tp-accent: #ffffff;
-  --tp-accent-hover: #d4d4d4;
+  --tp-accent: #A78BFA;
+  --tp-accent-hover: #B89AFC;
   --tp-accent-fg: #0a0a0a;
+  --tp-accent-soft: rgba(167, 139, 250, 0.14);
+  --tp-accent-ring: rgba(167, 139, 250, 0.35);
   --tp-success: #22c55e;
   --tp-warning: #eab308;
   --tp-error: #ef4444;
@@ -477,11 +450,35 @@ body {
   transition: border-color 100ms;
 }
 
-.input:focus { border-color: var(--tp-border-hover); }
+.input:focus { border-color: var(--tp-accent); box-shadow: 0 0 0 3px var(--tp-accent-ring); }
 .input::placeholder { color: var(--tp-text-muted); }
 .mx-label { display: block; font-size: 11px; font-weight: 600; color: var(--tp-text-secondary); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
-.mx-modal-backdrop { animation: mx-fade-in 0.15s ease; }
+
+/* ── Phosphor Duotone icon defaults ─────────────────────────────── */
+.ph-duotone, [class^="ph-"], [class*=" ph-"] { font-size: 18px; line-height: 1; vertical-align: middle; display: inline-flex; }
+.nav-item .ph-duotone, .nav-item [class*="ph-"] { font-size: 18px; flex-shrink: 0; }
+.stat-icon .ph-duotone, .stat-icon [class*="ph-"] { font-size: 22px; }
+.btn .ph-duotone, .btn [class*="ph-"] { font-size: 14px; }
+.btn-icon-only { padding: 7px; }
+
+/* ── Modal: backdrop blur + slide-up ────────────────────────────── */
+.mx-modal-backdrop { animation: mx-fade-in 0.18s ease; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.mx-modal-backdrop .mx-modal { animation: mx-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
 @keyframes mx-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mx-slide-up { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: none; } }
+
+/* ── Card hover lift ────────────────────────────────────────────── */
+.card { transition: border-color 150ms, box-shadow 150ms, transform 150ms; }
+.card:hover { transform: translateY(-1px); }
+
+/* ── Focused buttons get ring ───────────────────────────────────── */
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--tp-accent-ring); }
+
+/* ── Active nav: subtle purple tint behind gradient bar ─────────── */
+.nav-item.active { background: linear-gradient(90deg, var(--tp-accent-soft), transparent 60%); }
+
+/* ── Toast slide-up ─────────────────────────────────────────────── */
+@keyframes mx-toast { from { opacity: 0; transform: translateX(-50%) translateY(20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
 .select {
   appearance: none;
@@ -873,8 +870,10 @@ body {
 .empty-icon {
   font-size: 40px;
   margin-bottom: 12px;
-  opacity: 0.4;
+  opacity: 0.5;
+  color: var(--tp-text-secondary);
 }
+.empty-icon .ph-duotone, .empty-icon [class*="ph-"] { font-size: 48px; }
 
 .empty-title {
   font-size: 15px;
@@ -1380,7 +1379,7 @@ function renderProjectSwitcher() {
   ).join('');
   container.innerHTML = '<div style="display:flex;gap:4px;align-items:center">'
     + '<select id="project-select" style="flex:1;padding:6px 8px;border-radius:8px;background:var(--tp-bg);border:1px solid var(--tp-border);color:var(--tp-text);font-size:12px">' + opts + '</select>'
-    + '<button id="rename-project-btn" style="padding:4px 6px;border-radius:6px;background:none;border:1px solid var(--tp-border);color:var(--tp-text-secondary);cursor:pointer;font-size:11px" title="Rename project">&#9998;</button>'
+    + '<button id="rename-project-btn" style="padding:4px 6px;border-radius:6px;background:none;border:1px solid var(--tp-border);color:var(--tp-text-secondary);cursor:pointer;font-size:11px" title="Rename project"><i class="ph-duotone ph-pencil-simple"></i></button>'
     + '</div>';
   container.style.display = 'block';
   document.getElementById('project-select').addEventListener('change', (e) => {
@@ -1451,25 +1450,25 @@ async function renderOverview(el) {
 
       <div class="stat-grid">
         <div class="card stat-card stat-purple" onclick="location.hash='#/memories'" style="cursor:pointer">
-          <div class="stat-icon" style="background:var(--tp-purple-dim);color:var(--tp-purple)">&#x2B22;</div>
+          <div class="stat-icon" style="background:var(--tp-purple-dim);color:var(--tp-purple)"><i class="ph-duotone ph-stack"></i></div>
           <div class="card-title">Memories</div>
           <div class="card-value">\${s.total_memories || 0}</div>
           \${s.type_breakdown ? \`<div class="card-sub">\${Object.keys(s.type_breakdown).length} types</div>\` : ''}
         </div>
         <div class="card stat-card stat-blue" onclick="location.hash='#/graph'" style="cursor:pointer">
-          <div class="stat-icon" style="background:rgba(59,130,246,0.12);color:var(--tp-info)">&#x2B21;</div>
+          <div class="stat-icon" style="background:rgba(59,130,246,0.12);color:var(--tp-info)"><i class="ph-duotone ph-graph"></i></div>
           <div class="card-title">Entities</div>
           <div class="card-value">\${s.total_entities || 0}</div>
           <div class="card-sub">knowledge graph</div>
         </div>
         <div class="card stat-card stat-green" onclick="location.hash='#/tasks'" style="cursor:pointer">
-          <div class="stat-icon" style="background:rgba(34,197,94,0.12);color:var(--tp-success)">&#x2713;</div>
+          <div class="stat-icon" style="background:rgba(34,197,94,0.12);color:var(--tp-success)"><i class="ph-duotone ph-check-square"></i></div>
           <div class="card-title">Tasks</div>
           <div class="card-value">\${s.total_tasks || 0}</div>
           <div class="card-sub">\${s.open_tasks || 0} open</div>
         </div>
         <div class="card stat-card stat-red" onclick="location.hash='#/postmortems'" style="cursor:pointer">
-          <div class="stat-icon" style="background:rgba(239,68,68,0.12);color:var(--tp-error)">&#x26A0;</div>
+          <div class="stat-icon" style="background:rgba(239,68,68,0.12);color:var(--tp-error)"><i class="ph-duotone ph-warning-circle"></i></div>
           <div class="card-title">Postmortems</div>
           <div class="card-value">\${s.total_postmortems || 0}</div>
           <div class="card-sub">bug analyses</div>
@@ -1506,7 +1505,7 @@ async function renderOverview(el) {
       \` : ''}
     \`;
   } catch (e) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x2B22;</div><div class="empty-title">No data yet</div><div class="empty-desc">Start using MEMAXX Memory with your AI tools to see data here.</div></div>';
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon"><i class="ph-duotone ph-stack"></i></div><div class="empty-title">No data yet</div><div class="empty-desc">Start using MEMAXX Memory with your AI tools to see data here.</div></div>';
   }
 }
 
@@ -1535,7 +1534,7 @@ async function renderMemories(el) {
           <h1 class="page-title">Memories</h1>
           <p class="page-desc">\${data.total || 0} memories stored</p>
         </div>
-        <button class="btn btn-primary" onclick="showNewMemory()">+ New Memory</button>
+        <button class="btn btn-primary" onclick="showNewMemory()"><i class="ph-duotone ph-plus"></i>New Memory</button>
       </div>
 
       <div class="search-bar">
@@ -1551,7 +1550,7 @@ async function renderMemories(el) {
       <div id="memories-list">
         \${data.memories && data.memories.length ? data.memories.map(m => memoryCard(m)).join('') : \`
           <div class="empty-state">
-            <div class="empty-icon">&#x1F4AD;</div>
+            <div class="empty-icon"><i class="ph-duotone ph-magnifying-glass"></i></div>
             <div class="empty-title">No memories found</div>
             <div class="empty-desc">Try a different search or filter.</div>
           </div>
@@ -1567,7 +1566,7 @@ async function renderMemories(el) {
       \` : ''}
     \`;
   } catch (e) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x26A0;</div><div class="empty-title">Error loading memories</div></div>';
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon"><i class="ph-duotone ph-warning-octagon"></i></div><div class="empty-title">Error loading memories</div></div>';
   }
 }
 
@@ -1679,7 +1678,7 @@ async function renderGraph(el) {
       <div class="graph-controls">
         <button onclick="graphZoom(1.3)" title="Zoom In">+</button>
         <button onclick="graphZoom(0.7)" title="Zoom Out">&minus;</button>
-        <button onclick="graphReset()" title="Reset">&#x21BA;</button>
+        <button onclick="graphReset()" title="Reset"><i class="ph-duotone ph-arrow-counter-clockwise"></i></button>
       </div>
       <div class="graph-tooltip" id="graph-tooltip"></div>
       <div class="graph-panel" id="graph-panel"></div>
@@ -1695,7 +1694,7 @@ async function renderGraph(el) {
     if (!data.nodes || !data.nodes.length) {
       document.getElementById('graph-container').innerHTML = \`
         <div class="empty-state">
-          <div class="empty-icon">&#x2B21;</div>
+          <div class="empty-icon"><i class="ph-duotone ph-graph"></i></div>
           <div class="empty-title">No entities yet</div>
           <div class="empty-desc">Entities are automatically extracted from your memories.</div>
         </div>
@@ -1965,7 +1964,7 @@ async function renderTasks(el) {
           <h1 class="page-title">Tasks</h1>
           <p class="page-desc">\${tasks.length} total tasks</p>
         </div>
-        <button class="btn btn-primary" onclick="showNewTask()">+ New Task</button>
+        <button class="btn btn-primary" onclick="showNewTask()"><i class="ph-duotone ph-plus"></i>New Task</button>
       </div>
 
       <div id="new-task-form" class="hidden card mb-2" style="margin-bottom:16px">
@@ -2001,7 +2000,7 @@ async function renderTasks(el) {
       </div>
     \`;
   } catch (e) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x2713;</div><div class="empty-title">Error loading tasks</div></div>';
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon"><i class="ph-duotone ph-warning-octagon"></i></div><div class="empty-title">Error loading tasks</div></div>';
   }
 }
 
@@ -2051,7 +2050,7 @@ async function renderPostmortems(el) {
           <h1 class="page-title">Postmortems</h1>
           <p class="page-desc">\${pms.length} bug analyses recorded</p>
         </div>
-        <button class="btn btn-primary" onclick="showNewPostmortem()">+ New Postmortem</button>
+        <button class="btn btn-primary" onclick="showNewPostmortem()"><i class="ph-duotone ph-plus"></i>New Postmortem</button>
       </div>
 
       \${pms.length ? pms.map(pm => \`
@@ -2063,7 +2062,7 @@ async function renderPostmortems(el) {
             <span class="text-xs text-muted" style="margin-left:auto">\${timeAgo(pm.created_at)}</span>
           </div>
           <div class="text-xs text-secondary" style="margin-top:4px">\${esc(pm.description || '')}</div>
-          <div class="expand-hint"><span class="expand-chevron">&#x25B6;</span> Click to expand details</div>
+          <div class="expand-hint"><span class="expand-chevron"><i class="ph-duotone ph-caret-right"></i></span> Click to expand details</div>
           <div class="postmortem-section" style="display:none">
             <div class="postmortem-section-title">Root Cause</div>
             <div class="text-xs text-secondary">\${esc(pm.root_cause || 'Not documented')}</div>
@@ -2079,7 +2078,7 @@ async function renderPostmortems(el) {
         </div>
       \`).join('') : \`
         <div class="empty-state">
-          <div class="empty-icon">&#x1F41B;</div>
+          <div class="empty-icon"><i class="ph-duotone ph-bug"></i></div>
           <div class="empty-title">No postmortems yet</div>
           <div class="empty-desc">When bugs are fixed, their root cause analysis appears here.</div>
         </div>
@@ -2115,7 +2114,7 @@ async function renderThinking(el) {
           <h1 class="page-title">Thinking Sequences</h1>
           <p class="page-desc">Structured problem-solving chains</p>
         </div>
-        <button class="btn btn-primary" onclick="showNewThinking()">+ Start Sequence</button>
+        <button class="btn btn-primary" onclick="showNewThinking()"><i class="ph-duotone ph-plus"></i>Start Sequence</button>
       </div>
 
       \${seqs.length ? seqs.map(seq => \`
@@ -2132,7 +2131,7 @@ async function renderThinking(el) {
         </div>
       \`).join('') : \`
         <div class="empty-state">
-          <div class="empty-icon">&#x1F4A1;</div>
+          <div class="empty-icon"><i class="ph-duotone ph-lightbulb"></i></div>
           <div class="empty-title">No thinking sequences</div>
           <div class="empty-desc">Thinking sequences are created during complex problem-solving.</div>
         </div>
@@ -2150,7 +2149,12 @@ window.loadThinking = async (id, el) => {
   try {
     const data = await api('/api/thinking/' + id);
     const thoughts = data.thoughts || [];
-    const typeIcons = { observation: '&#x1F441;', hypothesis: '&#x1F914;', analysis: '&#x1F50D;', conclusion: '&#x2714;' };
+    const typeIcons = {
+      observation: '<i class="ph-duotone ph-eye"></i>',
+      hypothesis: '<i class="ph-duotone ph-question"></i>',
+      analysis: '<i class="ph-duotone ph-magnifying-glass"></i>',
+      conclusion: '<i class="ph-duotone ph-check-circle"></i>',
+    };
     const typeColors = { observation: 'var(--tp-info)', hypothesis: 'var(--tp-warning)', analysis: 'var(--tp-purple)', conclusion: 'var(--tp-success)' };
 
     container.innerHTML = thoughts.map(t => \`
@@ -2185,7 +2189,7 @@ async function renderRules(el) {
           <h1 class="page-title">Rules</h1>
           <p class="page-desc">\${userRules.length} user rules, \${builtinRules.length} built-in rules</p>
         </div>
-        <button class="btn btn-primary" onclick="showNewRule()">+ Add Rule</button>
+        <button class="btn btn-primary" onclick="showNewRule()"><i class="ph-duotone ph-plus"></i>Add Rule</button>
       </div>
 
       \${userRules.length ? \`
@@ -2199,7 +2203,7 @@ async function renderRules(el) {
             </div>
           \`).join('')}
         </div>
-      \` : \`<div class="empty-state" style="margin-bottom:16px"><div class="empty-icon">&#x1F4DC;</div><div class="empty-title">No user rules</div><div class="empty-desc">Add project-specific rules to guide AI behavior.</div></div>\`}
+      \` : \`<div class="empty-state" style="margin-bottom:16px"><div class="empty-icon"><i class="ph-duotone ph-scroll"></i></div><div class="empty-title">No user rules</div><div class="empty-desc">Add project-specific rules to guide AI behavior.</div></div>\`}
 
       <div class="section">
         <div class="section-title">Built-in Rules <span class="badge badge-purple">\${builtinRules.length}</span></div>
@@ -2586,7 +2590,7 @@ function openModal(title, contentHtml, opts = {}) {
     <div class="mx-modal" style="background:var(--tp-surface);border:1px solid var(--tp-border);border-radius:14px;max-width:\${opts.width || '640px'};width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,0.6)">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--tp-border)">
         <h2 style="font-size:15px;font-weight:600;color:var(--tp-text);margin:0">\${esc(title)}</h2>
-        <button class="btn btn-ghost" onclick="closeModal()" style="padding:4px 10px">&#x2715;</button>
+        <button class="btn btn-ghost" onclick="closeModal()" style="padding:4px 10px"><i class="ph-duotone ph-x"></i></button>
       </div>
       <div class="mx-modal-body" style="padding:20px">\${contentHtml}</div>
     </div>
@@ -2604,7 +2608,7 @@ window.closeModal = closeModal;
 function toast(msg, kind = 'info') {
   const t = document.createElement('div');
   const colors = { info: 'var(--tp-info)', success: 'var(--tp-success)', error: 'var(--tp-error)', warning: 'var(--tp-warning)' };
-  t.style.cssText = \`position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--tp-surface);border:1px solid \${colors[kind] || colors.info};border-radius:8px;padding:10px 16px;font-size:13px;color:var(--tp-text);z-index:10000;box-shadow:0 8px 24px rgba(0,0,0,0.5)\`;
+  t.style.cssText = \`position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--tp-surface);border:1px solid \${colors[kind] || colors.info};border-radius:10px;padding:10px 16px;font-size:13px;color:var(--tp-text);z-index:10000;box-shadow:0 8px 24px rgba(0,0,0,0.5);animation:mx-toast 220ms cubic-bezier(0.16,1,0.3,1);transition:opacity 350ms\`;
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.style.opacity = '0', 2500);
@@ -2917,7 +2921,7 @@ async function renderDocs(el) {
           <h1 class="page-title">Project Docs</h1>
           <p class="page-desc">\${docs.length} documents for this project</p>
         </div>
-        <button class="btn btn-primary" onclick="showNewDoc()">+ New Doc</button>
+        <button class="btn btn-primary" onclick="showNewDoc()"><i class="ph-duotone ph-plus"></i>New Doc</button>
       </div>
       \${docs.length ? docs.map(d => \`
         <div class="card" style="margin-bottom:10px;cursor:pointer" onclick="showDoc('\${d.id}')">
@@ -2930,7 +2934,7 @@ async function renderDocs(el) {
           </div>
         </div>\`).join('') : \`
         <div class="empty-state">
-          <div class="empty-icon">&#x1F4D6;</div>
+          <div class="empty-icon"><i class="ph-duotone ph-book-open"></i></div>
           <div class="empty-title">No project docs yet</div>
           <div class="empty-desc">Create specs, decisions, or onboarding notes that travel with the project.</div>
         </div>\`}
@@ -3230,9 +3234,9 @@ function showOnboarding() {
           Persistent AI memory for your coding assistants. Every decision, bug fix, and pattern &mdash;
           remembered across sessions, forever.
         </div>
-        <div class="onboarding-check"><div class="check-icon check-ok">&#x2713;</div> PostgreSQL + pgvector ready</div>
-        <div class="onboarding-check"><div class="check-icon check-ok">&#x2713;</div> 33 MCP tools available</div>
-        <div class="onboarding-check"><div class="check-icon check-ok">&#x2713;</div> 100% self-hosted &mdash; your data stays here</div>
+        <div class="onboarding-check"><div class="check-icon check-ok"><i class="ph-duotone ph-check"></i></div> PostgreSQL + pgvector ready</div>
+        <div class="onboarding-check"><div class="check-icon check-ok"><i class="ph-duotone ph-check"></i></div> 33 MCP tools available</div>
+        <div class="onboarding-check"><div class="check-icon check-ok"><i class="ph-duotone ph-check"></i></div> 100% self-hosted &mdash; your data stays here</div>
         <div class="onboarding-desc" style="margin-top:16px;font-size:12px;color:var(--tp-text-secondary)">
           Let's configure your embedding provider so MEMAXX can store and search memories semantically.
         </div>
@@ -3382,7 +3386,7 @@ function showOnboarding() {
           MEMAXX Memory is configured and ready. Your AI will now remember everything.
         </div>
         <div style="text-align:center;margin:20px 0">
-          <div style="font-size:48px;margin-bottom:12px">&#x1F680;</div>
+          <div style="font-size:64px;margin-bottom:12px;color:var(--tp-accent)"><i class="ph-duotone ph-rocket-launch"></i></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0">
           <div class="card" style="text-align:center;padding:14px">
